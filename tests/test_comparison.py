@@ -16,7 +16,6 @@ class ComparisonScriptTest(unittest.TestCase):
                 "calibration_ece": 0.01,
                 "importance_ess": 100.0,
                 "final_elbo": -20.0,
-                "best_elbo": -15.0,
             },
             {
                 "feature_set": "core",
@@ -28,7 +27,6 @@ class ComparisonScriptTest(unittest.TestCase):
                 "calibration_ece": 0.03,
                 "importance_ess": 200.0,
                 "final_elbo": -10.0,
-                "best_elbo": -8.0,
             },
         ]
 
@@ -40,8 +38,26 @@ class ComparisonScriptTest(unittest.TestCase):
         self.assertEqual(summary[0]["runs"], 2)
         self.assertEqual(summary[0]["theta_l2_error_mean"], 2.0)
         self.assertEqual(summary[0]["heldout_loglik_delta_mean"], 15.0)
-        self.assertEqual(summary[0]["best_elbo_mean"], -11.5)
         self.assertGreater(summary[0]["theta_l2_error_std"], 0.0)
+
+    def test_summarize_rows_can_skip_importance_reference(self) -> None:
+        rows = [
+            {
+                "feature_set": "compact",
+                "profile": "aggressive",
+                "feature_count": 5,
+                "theta_l2_error": 1.5,
+                "heldout_loglik_delta": 12.0,
+                "heldout_mean_logp_delta": 0.12,
+                "calibration_ece": 0.02,
+                "final_elbo": -30.0,
+            }
+        ]
+
+        summary = summarize_rows(rows, include_importance_reference=False)
+
+        self.assertEqual(summary[0]["theta_l2_error_mean"], 1.5)
+        self.assertNotIn("importance_ess_mean", summary[0])
 
 
 if __name__ == "__main__":
