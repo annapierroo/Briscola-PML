@@ -46,21 +46,18 @@ RUN_FIELDNAMES = (
     "heldout_baseline_mean_logp",
     "heldout_mean_logp_delta",
     "calibration_ece",
-    "importance_ess",
     "initial_elbo",
     "final_elbo",
-    "best_elbo",
-    "best_step",
 )
 SUMMARY_METRICS = (
     "theta_l2_error",
     "heldout_loglik_delta",
     "heldout_mean_logp_delta",
     "calibration_ece",
-    "importance_ess",
     "final_elbo",
-    "best_elbo",
 )
+REFERENCE_RUN_FIELDNAMES = ("importance_ess",)
+REFERENCE_SUMMARY_METRICS = ("importance_ess",)
 
 
 def main() -> None:
@@ -72,19 +69,25 @@ def main() -> None:
     for index, spec in enumerate(run_specs, start=1):
         _print_progress(
             f"run {index}/{len(run_specs)}: "
-            f"feature_set={spec.feature_set}, profile={spec.profile}, seed={spec.seed}"
+            f"feature_set={spec.feature_set}, profile={spec.profile}, seed={spec.seed}, "
+            f"theta_scale={spec.theta_scale}, split_unit={spec.split_unit}"
         )
         row = _run_validation_case(spec, show_vi_progress=args.show_vi_progress)
         rows.append(row)
-        _print_progress(
+        progress_message = (
             "done: "
             f"delta={row['heldout_loglik_delta']:.3f}, "
             f"theta_l2={row['theta_l2_error']:.3f}, "
-            f"ece={row['calibration_ece']:.3f}, "
-            f"ess={row['importance_ess']:.1f}"
+            f"ece={row['calibration_ece']:.3f}"
         )
+        if "importance_ess" in row:
+            progress_message += f", ess={row['importance_ess']:.1f}"
+        _print_progress(progress_message)
 
-    summary = summarize_rows(rows)
+    summary = summarize_rows(
+        rows,
+        include_importance_reference=not args.skip_importance_reference,
+    )
     output_paths = _write_outputs(
         rows=rows,
         summary=summary,
@@ -96,7 +99,14 @@ def main() -> None:
     _print_progress(f"wrote summary CSV to {output_paths['summary_csv']}")
 
 
-def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_rows(
+    rows: list[dict[str, Any]],
+    *,
+    include_importance_reference: bool | None = None,
+) -> list[dict[str, Any]]:
+    if include_importance_reference is None:
+        include_importance_reference = all("importance_ess" in row for row in rows)
+    metrics = _summary_metrics(include_importance_reference)
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
         key = (str(row["feature_set"]), str(row["profile"]))
@@ -111,7 +121,7 @@ def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "runs": len(group),
             "feature_count": group[0]["feature_count"],
         }
-        for metric in SUMMARY_METRICS:
+        for metric in metrics:
             values = tuple(float(row[metric]) for row in group)
             item[f"{metric}_mean"] = statistics.fmean(values)
             item[f"{metric}_std"] = statistics.stdev(values) if len(values) > 1 else 0.0
@@ -205,6 +215,11 @@ def _parse_args() -> argparse.Namespace:
         help="training observations used by the importance-sampling reference",
     )
     parser.add_argument(
+        "--skip-importance-reference",
+        action="store_true",
+        help="skip the prior-sample importance reference to make comparison runs faster",
+    )
+    parser.add_argument(
         "--calibration-bins",
         type=int,
         default=5,
@@ -250,9 +265,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("learning_rate must be positive")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
-    if args.importance_samples <= 0:
+    if not args.skip_importance_reference and args.importance_samples <= 0:
         raise ValueError("importance_samples must be positive")
-    if args.reference_observations <= 0:
+    if not args.skip_importance_reference and args.reference_observations <= 0:
         raise ValueError("reference_observations must be positive")
     if args.calibration_bins <= 0:
         raise ValueError("calibration_bins must be positive")
@@ -276,6 +291,7 @@ def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
             elbo_samples=args.elbo_samples,
             importance_samples=args.importance_samples,
             reference_observations=args.reference_observations,
+            skip_importance_reference=args.skip_importance_reference,
             calibration_bins=args.calibration_bins,
             progress_interval=args.progress_interval,
         )
@@ -322,6 +338,7 @@ def _run_validation_case(
         test,
         posterior_mean=posterior.mean,
         feature_names=feature_names,
+        mode=LikelihoodMode.CONDITIONAL,
     )
     calibration = calibration_curve(
         test,
@@ -329,18 +346,11 @@ def _run_validation_case(
         feature_names=feature_names,
         num_bins=spec.calibration_bins,
     )
-    reference = importance_sampling_reference(
-        train[: spec.reference_observations],
-        feature_names=feature_names,
-        num_samples=spec.importance_samples,
-        seed=spec.seed + 5,
-    )
     posterior_error = tuple(
         estimate - truth
         for estimate, truth in zip(posterior.mean, true_theta)
     )
-
-    return {
+    row = {
         "feature_set": spec.feature_set,
         "profile": spec.profile,
         "seed": spec.seed,
@@ -364,12 +374,19 @@ def _run_validation_case(
             - predictive.baseline_mean_log_probability
         ),
         "calibration_ece": calibration.expected_calibration_error,
-        "importance_ess": reference.effective_sample_size,
         "initial_elbo": posterior.elbo_history[0],
         "final_elbo": posterior.elbo_history[-1],
-        "best_elbo": posterior.best_elbo,
-        "best_step": posterior.best_step,
     }
+    if not spec.skip_importance_reference:
+        reference = importance_sampling_reference(
+            train[: spec.reference_observations],
+            feature_names=feature_names,
+            num_samples=spec.importance_samples,
+            seed=spec.seed + 5,
+            mode=LikelihoodMode.CONDITIONAL,
+        )
+        row["importance_ess"] = reference.effective_sample_size
+    return row
 
 
 def _write_outputs(
@@ -398,6 +415,7 @@ def _write_outputs(
             "elbo_samples": args.elbo_samples,
             "importance_samples": args.importance_samples,
             "reference_observations": args.reference_observations,
+            "skip_importance_reference": args.skip_importance_reference,
             "calibration_bins": args.calibration_bins,
         },
         "runs": rows,
@@ -407,8 +425,13 @@ def _write_outputs(
         json.dumps(_json_ready(payload), indent=2) + "\n",
         encoding="utf-8",
     )
-    _write_csv(runs_csv_path, rows, RUN_FIELDNAMES)
-    _write_csv(summary_csv_path, summary, _summary_fieldnames())
+    include_importance_reference = not args.skip_importance_reference
+    _write_csv(runs_csv_path, rows, _run_fieldnames(include_importance_reference))
+    _write_csv(
+        summary_csv_path,
+        summary,
+        _summary_fieldnames(include_importance_reference),
+    )
     return {
         "json": json_path,
         "runs_csv": runs_csv_path,
@@ -427,32 +450,60 @@ def _write_csv(
         writer.writerows(rows)
 
 
-def _summary_fieldnames() -> tuple[str, ...]:
+def _run_fieldnames(include_importance_reference: bool) -> tuple[str, ...]:
+    if not include_importance_reference:
+        return RUN_FIELDNAMES
+    insertion_index = RUN_FIELDNAMES.index("initial_elbo")
+    return (
+        RUN_FIELDNAMES[:insertion_index]
+        + REFERENCE_RUN_FIELDNAMES
+        + RUN_FIELDNAMES[insertion_index:]
+    )
+
+
+def _summary_metrics(include_importance_reference: bool) -> tuple[str, ...]:
+    if not include_importance_reference:
+        return SUMMARY_METRICS
+    insertion_index = SUMMARY_METRICS.index("final_elbo")
+    return (
+        SUMMARY_METRICS[:insertion_index]
+        + REFERENCE_SUMMARY_METRICS
+        + SUMMARY_METRICS[insertion_index:]
+    )
+
+
+def _summary_fieldnames(include_importance_reference: bool) -> tuple[str, ...]:
     fields = ["feature_set", "profile", "runs", "feature_count"]
-    for metric in SUMMARY_METRICS:
+    for metric in _summary_metrics(include_importance_reference):
         fields.append(f"{metric}_mean")
         fields.append(f"{metric}_std")
     return tuple(fields)
 
 
 def _print_summary(summary: list[dict[str, Any]]) -> None:
+    include_importance_reference = any("importance_ess_mean" in row for row in summary)
     print("Validation comparison")
-    print(
+    header = (
         f"{'feature_set':<12} {'profile':<14} {'runs':>4} "
         f"{'theta_l2':>9} {'loglik_delta':>13} {'mean_logp_delta':>15} "
-        f"{'ece':>8} {'ess':>8}"
+        f"{'ece':>8}"
     )
+    if include_importance_reference:
+        header += f" {'ess':>8}"
+    print(header)
     for row in summary:
-        print(
+        line = (
             f"{row['feature_set']:<12} "
             f"{row['profile']:<14} "
             f"{row['runs']:>4} "
             f"{row['theta_l2_error_mean']:>9.3f} "
             f"{row['heldout_loglik_delta_mean']:>13.3f} "
             f"{row['heldout_mean_logp_delta_mean']:>15.3f} "
-            f"{row['calibration_ece_mean']:>8.3f} "
-            f"{row['importance_ess_mean']:>8.1f}"
+            f"{row['calibration_ece_mean']:>8.3f}"
         )
+        if include_importance_reference:
+            line += f" {row['importance_ess_mean']:>8.1f}"
+        print(line)
 
 
 def _print_progress(message: str) -> None:

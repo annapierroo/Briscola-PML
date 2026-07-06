@@ -121,6 +121,7 @@ def main() -> None:
         test,
         posterior_mean=posterior.mean,
         feature_names=feature_names,
+        mode=LikelihoodMode.CONDITIONAL,
     )
     _print_progress("building calibration curve...")
     calibration = calibration_curve(
@@ -138,6 +139,7 @@ def main() -> None:
         feature_names=feature_names,
         num_samples=args.importance_samples,
         seed=args.seed + 5,
+        mode=LikelihoodMode.CONDITIONAL,
     )
 
     _print_progress("writing report...")
