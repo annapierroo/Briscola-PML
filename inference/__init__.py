@@ -5,6 +5,7 @@ from inference.beliefs import (
     compatible_hands_containing,
     compatible_unknown_cards,
     hand_count,
+    known_opponent_cards,
 )
 from inference.likelihood import (
     LikelihoodMode,
@@ -33,6 +34,7 @@ __all__ = [
     "diag_gaussian_kl",
     "fit_variational_posterior",
     "hand_count",
+    "known_opponent_cards",
     "local_card_probability",
     "log_likelihood_torch",
     "log_marginal_probability_torch",

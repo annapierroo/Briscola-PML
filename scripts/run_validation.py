@@ -219,13 +219,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-mode",
         choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.CONDITIONAL.value,
+        default=LikelihoodMode.ABSOLUTE.value,
         help="likelihood mode used while fitting theta",
     )
     parser.add_argument(
         "--eval-mode",
         choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.CONDITIONAL.value,
+        default=LikelihoodMode.ABSOLUTE.value,
         help="likelihood mode used for held-out prediction",
     )
     parser.add_argument(

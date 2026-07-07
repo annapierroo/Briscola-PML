@@ -13,6 +13,7 @@ from inference import (
     LikelihoodMode,
     compatible_unknown_cards,
     fit_variational_posterior,
+    known_opponent_cards,
     local_card_probability,
     marginal_card_probability,
     marginal_log_likelihood,
@@ -352,6 +353,7 @@ def calibration_curve(
         for candidate in compatible_unknown_cards(
             observation.public_state,
             observation.observer_hand,
+            opponent_player=observation.player,
         ):
             probability = _posterior_predictive_card_probability(
                 candidate,
@@ -523,13 +525,25 @@ def _sample_uniform_compatible_hand(
     unknown_cards = compatible_unknown_cards(
         observation.public_state,
         observation.observer_hand,
+        opponent_player=observation.player,
+    )
+    required_cards = known_opponent_cards(
+        observation.public_state,
+        observation.observer_hand,
+        opponent_player=observation.player,
     )
     hand_size = observation.public_state.hand_sizes[observation.player]
     if hand_size < 0:
         raise ValueError("hand size cannot be negative")
     if hand_size > len(unknown_cards):
         raise ValueError("no compatible hands are available for this observation")
-    return tuple(rng.sample(unknown_cards, hand_size))
+    if any(card not in unknown_cards for card in required_cards):
+        raise ValueError("required public cards are not compatible with this observation")
+    draw_count = hand_size - len(required_cards)
+    if draw_count < 0:
+        raise ValueError("too many required public cards for this hand size")
+    remaining_cards = tuple(card for card in unknown_cards if card not in required_cards)
+    return (*required_cards, *rng.sample(remaining_cards, draw_count))
 
 
 def _sample_card_from_hand(

@@ -144,11 +144,24 @@ def summarize_rows(
             "feature_count": group[0]["feature_count"],
         }
         for metric in metrics:
-            values = tuple(float(row[metric]) for row in group)
-            item[f"{metric}_mean"] = statistics.fmean(values)
-            item[f"{metric}_std"] = statistics.stdev(values) if len(values) > 1 else 0.0
+            values = _finite_metric_values(group, metric)
+            item[f"{metric}_mean"] = statistics.fmean(values) if values else math.nan
+            item[f"{metric}_std"] = (
+                statistics.stdev(values)
+                if len(values) > 1
+                else (0.0 if values else math.nan)
+            )
         summary.append(item)
     return summary
+
+
+def _finite_metric_values(rows: list[dict[str, Any]], metric: str) -> tuple[float, ...]:
+    return tuple(
+        value
+        for row in rows
+        for value in (float(row[metric]),)
+        if math.isfinite(value)
+    )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -221,13 +234,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-mode",
         choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.CONDITIONAL.value,
+        default=LikelihoodMode.ABSOLUTE.value,
         help="likelihood mode used while fitting theta",
     )
     parser.add_argument(
         "--eval-mode",
         choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.CONDITIONAL.value,
+        default=LikelihoodMode.ABSOLUTE.value,
         help="likelihood mode used for held-out prediction",
     )
     parser.add_argument(

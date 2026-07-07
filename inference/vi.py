@@ -11,6 +11,7 @@ from inference.beliefs import (
     compatible_hands_containing,
     compatible_unknown_cards,
     hand_count,
+    known_opponent_cards,
 )
 from inference.likelihood import LikelihoodMode
 from opponents.features import FEATURE_NAMES, card_features
@@ -244,12 +245,19 @@ def _prepare_observation(
     unknown_cards = compatible_unknown_cards(
         observation.public_state,
         observation.observer_hand,
+        opponent_player=observation.player,
+    )
+    required_cards = known_opponent_cards(
+        observation.public_state,
+        observation.observer_hand,
+        opponent_player=observation.player,
     )
     hand_size = observation.public_state.hand_sizes[observation.player]
     hands = compatible_hands_containing(
         unknown_cards,
         hand_size,
         observation.chosen_card,
+        required_cards=required_cards,
     )
     if not hands:
         raise ValueError("observation has no compatible hidden hands")
@@ -271,7 +279,11 @@ def _prepare_observation(
     tensor = torch_module.tensor(feature_rows, dtype=dtype)
     log_hand_factor = 0.0
     if mode == LikelihoodMode.ABSOLUTE:
-        total_count = hand_count(len(unknown_cards), hand_size)
+        total_count = hand_count(
+            len(unknown_cards),
+            hand_size,
+            required_count=len(required_cards),
+        )
         log_hand_factor = math.log(len(hands)) - math.log(total_count)
 
     return PreparedObservation(

@@ -159,7 +159,10 @@ Useful validation flags:
   leakage between train and held-out data. `observation` splits individual
   moves and is useful for small smoke tests.
 - `--train-mode`, `--eval-mode`, and `--calibration-mode`: choose whether each
-  stage uses the conditional or absolute marginal likelihood.
+  stage uses the conditional or absolute marginal likelihood. The script
+  defaults use `absolute` so reported held-out log probabilities are normalized
+  probabilities over observable cards; `conditional` remains available because
+  it differs only by theta-independent constants under the uniform local belief.
 - `--prior-std`: controls the width of the zero-mean Gaussian prior over theta.
   Larger values shrink fitted theta less aggressively toward zero.
 - `--posterior-samples`: held-out prediction and calibration average
