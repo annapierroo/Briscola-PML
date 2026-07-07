@@ -160,6 +160,8 @@ Useful validation flags:
   moves and is useful for small smoke tests.
 - `--train-mode`, `--eval-mode`, and `--calibration-mode`: choose whether each
   stage uses the conditional or absolute marginal likelihood.
+- `--prior-std`: controls the width of the zero-mean Gaussian prior over theta.
+  Larger values shrink fitted theta less aggressively toward zero.
 - `--posterior-samples`: held-out prediction and calibration average
   probabilities over samples from `q(theta)`. Use `0` to evaluate only the
   posterior mean.

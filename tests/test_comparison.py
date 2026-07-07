@@ -97,6 +97,7 @@ class ComparisonScriptTest(unittest.TestCase):
             calibration_mode="absolute",
             vi_steps=1,
             learning_rate=0.03,
+            prior_std=1.0,
             elbo_samples=1,
             posterior_samples=0,
             importance_samples=8,
