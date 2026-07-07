@@ -38,6 +38,7 @@ RUN_FIELDNAMES = (
     "train_mode",
     "eval_mode",
     "calibration_mode",
+    "prior_std",
     "posterior_samples",
     "feature_count",
     "feature_names",
@@ -248,6 +249,12 @@ def _parse_args() -> argparse.Namespace:
         help="Adam learning rate",
     )
     parser.add_argument(
+        "--prior-std",
+        type=float,
+        default=1.0,
+        help="standard deviation of the zero-mean Gaussian prior over theta",
+    )
+    parser.add_argument(
         "--elbo-samples",
         type=int,
         default=2,
@@ -341,6 +348,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("vi_steps must be positive")
     if args.learning_rate <= 0:
         raise ValueError("learning_rate must be positive")
+    if not math.isfinite(args.prior_std) or args.prior_std <= 0:
+        raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
     if args.posterior_samples < 0:
@@ -379,6 +388,7 @@ def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
             calibration_mode=args.calibration_mode,
             vi_steps=args.vi_steps,
             learning_rate=args.learning_rate,
+            prior_std=args.prior_std,
             elbo_samples=args.elbo_samples,
             posterior_samples=args.posterior_samples,
             importance_samples=args.importance_samples,
@@ -528,6 +538,7 @@ def _run_validation_case(
         num_steps=spec.vi_steps,
         learning_rate=spec.learning_rate,
         num_elbo_samples=spec.elbo_samples,
+        prior_std=spec.prior_std,
         seed=spec.seed + 4,
         progress_callback=progress_callback,
         progress_interval=spec.progress_interval,
@@ -593,6 +604,7 @@ def _run_validation_case(
         "train_mode": spec.train_mode,
         "eval_mode": spec.eval_mode,
         "calibration_mode": spec.calibration_mode,
+        "prior_std": spec.prior_std,
         "posterior_samples": spec.posterior_samples,
         "feature_count": len(feature_names),
         "feature_names": _json_cell(feature_names),
@@ -649,6 +661,7 @@ def _run_validation_case(
             train[: spec.reference_observations],
             feature_names=feature_names,
             num_samples=spec.importance_samples,
+            prior_std=spec.prior_std,
             seed=spec.seed + 5,
             mode=LikelihoodMode(spec.train_mode),
         )
@@ -684,6 +697,7 @@ def _write_outputs(
             "calibration_mode": args.calibration_mode,
             "vi_steps": args.vi_steps,
             "learning_rate": args.learning_rate,
+            "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
             "posterior_samples": args.posterior_samples,
             "importance_samples": args.importance_samples,

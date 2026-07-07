@@ -113,6 +113,7 @@ def main() -> None:
         num_steps=args.vi_steps,
         learning_rate=args.learning_rate,
         num_elbo_samples=args.elbo_samples,
+        prior_std=args.prior_std,
         seed=args.seed + 4,
         progress_callback=_print_vi_progress,
         progress_interval=args.progress_interval,
@@ -146,6 +147,7 @@ def main() -> None:
         train[: args.reference_observations],
         feature_names=feature_names,
         num_samples=args.importance_samples,
+        prior_std=args.prior_std,
         seed=args.seed + 5,
         mode=LikelihoodMode(args.train_mode),
     )
@@ -245,6 +247,12 @@ def _parse_args() -> argparse.Namespace:
         help="Adam learning rate",
     )
     parser.add_argument(
+        "--prior-std",
+        type=float,
+        default=1.0,
+        help="standard deviation of the zero-mean Gaussian prior over theta",
+    )
+    parser.add_argument(
         "--elbo-samples",
         type=int,
         default=2,
@@ -308,6 +316,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("vi_steps must be positive")
     if args.learning_rate <= 0:
         raise ValueError("learning_rate must be positive")
+    if not math.isfinite(args.prior_std) or args.prior_std <= 0:
+        raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
     if args.posterior_samples < 0:
@@ -385,6 +395,7 @@ def _build_report(
             "calibration_mode": args.calibration_mode,
             "vi_steps": args.vi_steps,
             "learning_rate": args.learning_rate,
+            "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
             "posterior_samples": args.posterior_samples,
             "importance_samples": args.importance_samples,
@@ -450,6 +461,7 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     print(f"split unit: {config['split_unit']}")
     print(f"train/eval mode: {config['train_mode']} / {config['eval_mode']}")
     print(f"calibration mode: {config['calibration_mode']}")
+    print(f"prior std: {config['prior_std']}")
     print(f"posterior samples: {config['posterior_samples']}")
     print(
         f"observations: {data['observations']} total, "
