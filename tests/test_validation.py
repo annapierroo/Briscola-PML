@@ -33,13 +33,47 @@ class ValidationTest(unittest.TestCase):
             posterior_mean=GREEDY_POINTS_THETA,
             baseline_theta=RANDOM_THETA,
         )
-        calibration = calibration_curve(test, GREEDY_POINTS_THETA, num_bins=5)
+        posterior_predictive = heldout_predictive_evaluation(
+            test,
+            posterior_mean=GREEDY_POINTS_THETA,
+            posterior_std=tuple(0.0 for _ in GREEDY_POINTS_THETA),
+            posterior_samples=3,
+            baseline_theta=RANDOM_THETA,
+            mode=LikelihoodMode.CONDITIONAL,
+            seed=9,
+        )
+        calibration = calibration_curve(
+            test,
+            GREEDY_POINTS_THETA,
+            posterior_std=tuple(0.0 for _ in GREEDY_POINTS_THETA),
+            posterior_samples=2,
+            num_bins=5,
+            seed=10,
+        )
         reference = importance_sampling_reference(train[:2], num_samples=8, seed=4)
 
         self.assertEqual(len(train) + len(test), len(observations))
         self.assertTrue(math.isfinite(predictive.posterior_log_likelihood))
+        self.assertTrue(math.isfinite(posterior_predictive.posterior_log_likelihood))
+        self.assertEqual(posterior_predictive.mode, LikelihoodMode.CONDITIONAL.value)
+        self.assertEqual(posterior_predictive.posterior_samples, 3)
         self.assertEqual(len(calibration.bins), 5)
         self.assertGreater(reference.effective_sample_size, 0.0)
+
+    def test_posterior_predictive_requires_std_when_sampling(self) -> None:
+        observations = collect_observations(
+            observed_model=ThetaSoftmaxOpponent(GREEDY_POINTS_THETA, seed=1),
+            observer_model=RandomOpponent(seed=2),
+            num_games=1,
+            seed=3,
+        )
+
+        with self.assertRaises(ValueError):
+            heldout_predictive_evaluation(
+                observations[:2],
+                posterior_mean=GREEDY_POINTS_THETA,
+                posterior_samples=2,
+            )
 
     def test_game_split_keeps_games_disjoint(self) -> None:
         observations = collect_observations(

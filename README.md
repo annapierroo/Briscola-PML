@@ -158,6 +158,11 @@ Useful validation flags:
   `game` keeps all moves from the same game in the same partition, which avoids
   leakage between train and held-out data. `observation` splits individual
   moves and is useful for small smoke tests.
+- `--train-mode`, `--eval-mode`, and `--calibration-mode`: choose whether each
+  stage uses the conditional or absolute marginal likelihood.
+- `--posterior-samples`: held-out prediction and calibration average
+  probabilities over samples from `q(theta)`. Use `0` to evaluate only the
+  posterior mean.
 
 ## Run A Comparison Grid
 
@@ -170,10 +175,19 @@ python3 scripts/run_comparison.py \
   --theta-scale 1.0 \
   --split-unit game \
   --vi-steps 300 \
-  --importance-samples 200
+  --importance-samples 200 \
+  --jobs 4
 ```
 
-By default, outputs are written under `artifacts/comparison/`.
+By default, outputs are written under `artifacts/comparison/`. Comparison runs
+can execute independent configurations in parallel with `--jobs`. Each fitted
+posterior is evaluated both at `posterior.mean` and, when `--posterior-samples`
+is positive, with posterior-predictive averaging.
+
+For faster exploratory comparisons, use `--max-train-observations`,
+`--max-test-observations`, and either `--skip-calibration` or
+`--calibration-observations`. The run CSV is written incrementally as each
+configuration finishes, so progress is visible before the full grid completes.
 
 ## Development Notes
 
@@ -182,5 +196,3 @@ Install dependencies from:
 ```bash
 pip install -r requirements.txt
 ```
-
-

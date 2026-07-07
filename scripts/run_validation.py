@@ -88,6 +88,7 @@ def main() -> None:
         f"(feature_set={args.feature_set}, profile={args.profile}, "
         f"data_source={args.data_source}, games={args.num_games}, "
         f"theta_scale={args.theta_scale}, split_unit={args.split_unit}, "
+        f"train_mode={args.train_mode}, eval_mode={args.eval_mode}, "
         f"seed={args.seed})"
     )
     _print_progress("collecting observations...")
@@ -108,7 +109,7 @@ def main() -> None:
     posterior = fit_variational_posterior(
         train,
         feature_names=feature_names,
-        mode=LikelihoodMode.CONDITIONAL,
+        mode=LikelihoodMode(args.train_mode),
         num_steps=args.vi_steps,
         learning_rate=args.learning_rate,
         num_elbo_samples=args.elbo_samples,
@@ -120,15 +121,22 @@ def main() -> None:
     predictive = heldout_predictive_evaluation(
         test,
         posterior_mean=posterior.mean,
+        posterior_std=posterior.std,
+        posterior_samples=args.posterior_samples,
+        seed=args.seed + 6,
         feature_names=feature_names,
-        mode=LikelihoodMode.CONDITIONAL,
+        mode=LikelihoodMode(args.eval_mode),
     )
     _print_progress("building calibration curve...")
     calibration = calibration_curve(
         test,
         posterior.mean,
+        posterior_std=posterior.std,
+        posterior_samples=args.posterior_samples,
+        seed=args.seed + 7,
         feature_names=feature_names,
         num_bins=args.calibration_bins,
+        mode=LikelihoodMode(args.calibration_mode),
     )
     _print_progress(
         f"running importance-sampling reference "
@@ -139,7 +147,7 @@ def main() -> None:
         feature_names=feature_names,
         num_samples=args.importance_samples,
         seed=args.seed + 5,
-        mode=LikelihoodMode.CONDITIONAL,
+        mode=LikelihoodMode(args.train_mode),
     )
 
     _print_progress("writing report...")
@@ -207,6 +215,24 @@ def _parse_args() -> argparse.Namespace:
         help="multiplier applied to the synthetic theta before generating data",
     )
     parser.add_argument(
+        "--train-mode",
+        choices=tuple(mode.value for mode in LikelihoodMode),
+        default=LikelihoodMode.CONDITIONAL.value,
+        help="likelihood mode used while fitting theta",
+    )
+    parser.add_argument(
+        "--eval-mode",
+        choices=tuple(mode.value for mode in LikelihoodMode),
+        default=LikelihoodMode.CONDITIONAL.value,
+        help="likelihood mode used for held-out prediction",
+    )
+    parser.add_argument(
+        "--calibration-mode",
+        choices=tuple(mode.value for mode in LikelihoodMode),
+        default=LikelihoodMode.ABSOLUTE.value,
+        help="likelihood mode used for calibration bins",
+    )
+    parser.add_argument(
         "--vi-steps",
         type=int,
         default=300,
@@ -223,6 +249,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Monte Carlo samples from q(theta) per ELBO step",
+    )
+    parser.add_argument(
+        "--posterior-samples",
+        type=int,
+        default=16,
+        help="posterior samples for held-out/calibration prediction; 0 uses posterior mean",
     )
     parser.add_argument(
         "--importance-samples",
@@ -278,6 +310,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("learning_rate must be positive")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
+    if args.posterior_samples < 0:
+        raise ValueError("posterior_samples cannot be negative")
     if args.importance_samples <= 0:
         raise ValueError("importance_samples must be positive")
     if args.reference_observations <= 0:
@@ -346,9 +380,13 @@ def _build_report(
             "train_fraction": args.train_fraction,
             "split_unit": args.split_unit,
             "theta_scale": args.theta_scale,
+            "train_mode": args.train_mode,
+            "eval_mode": args.eval_mode,
+            "calibration_mode": args.calibration_mode,
             "vi_steps": args.vi_steps,
             "learning_rate": args.learning_rate,
             "elbo_samples": args.elbo_samples,
+            "posterior_samples": args.posterior_samples,
             "importance_samples": args.importance_samples,
             "reference_observations": args.reference_observations,
             "calibration_bins": args.calibration_bins,
@@ -410,6 +448,9 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     print(f"data source: {config['data_source']}")
     print(f"theta scale: {config['theta_scale']}")
     print(f"split unit: {config['split_unit']}")
+    print(f"train/eval mode: {config['train_mode']} / {config['eval_mode']}")
+    print(f"calibration mode: {config['calibration_mode']}")
+    print(f"posterior samples: {config['posterior_samples']}")
     print(
         f"observations: {data['observations']} total, "
         f"{data['train_observations']} train, "

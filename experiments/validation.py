@@ -54,6 +54,8 @@ class PredictiveResult:
     posterior_mean_log_probability: float
     baseline_mean_log_probability: float
     num_observations: int
+    mode: str
+    posterior_samples: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,18 +282,28 @@ def heldout_predictive_evaluation(
     observations: Sequence[OpponentMoveObservation],
     posterior_mean: Sequence[float],
     *,
+    posterior_std: Sequence[float] | None = None,
+    posterior_samples: int = 0,
+    seed: int = 0,
     baseline_theta: Sequence[float] | None = None,
     feature_names: Sequence[str] = FEATURE_NAMES,
     mode: LikelihoodMode = LikelihoodMode.ABSOLUTE,
 ) -> PredictiveResult:
-    """Compare posterior mean against a baseline on held-out moves"""
+    """Compare posterior predictive probabilities against a baseline."""
 
     feature_names = tuple(feature_names)
+    mode = LikelihoodMode(mode)
     if baseline_theta is None:
         baseline_theta = zero_theta(feature_names)
-    posterior_log_likelihood = marginal_log_likelihood(
-        observations,
+    theta_samples = _posterior_theta_samples(
         posterior_mean,
+        posterior_std,
+        posterior_samples=posterior_samples,
+        seed=seed,
+    )
+    posterior_log_likelihood = _posterior_predictive_log_likelihood(
+        observations,
+        theta_samples,
         feature_names=feature_names,
         mode=mode,
     )
@@ -308,6 +320,8 @@ def heldout_predictive_evaluation(
         posterior_mean_log_probability=_safe_mean_log_probability(posterior_log_likelihood, count),
         baseline_mean_log_probability=_safe_mean_log_probability(baseline_log_likelihood, count),
         num_observations=count,
+        mode=mode.value,
+        posterior_samples=max(0, posterior_samples),
     )
 
 
@@ -315,28 +329,39 @@ def calibration_curve(
     observations: Sequence[OpponentMoveObservation],
     theta: Sequence[float],
     *,
+    posterior_std: Sequence[float] | None = None,
+    posterior_samples: int = 0,
+    seed: int = 0,
     feature_names: Sequence[str] = FEATURE_NAMES,
     num_bins: int = 10,
+    mode: LikelihoodMode = LikelihoodMode.ABSOLUTE,
 ) -> CalibrationResult:
-    """Bin absolute probabilities and empirical frequencies"""
+    """Bin predicted probabilities and empirical frequencies."""
 
     if num_bins <= 0:
         raise ValueError("num_bins must be positive")
 
+    feature_names = tuple(feature_names)
+    mode = LikelihoodMode(mode)
+    theta_samples = _posterior_theta_samples(
+        theta,
+        posterior_std,
+        posterior_samples=posterior_samples,
+        seed=seed,
+    )
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(num_bins)]
     for observation in observations:
         for candidate in compatible_unknown_cards(
             observation.public_state,
             observation.observer_hand,
         ):
-            probability = marginal_card_probability(
+            probability = _posterior_predictive_card_probability(
                 candidate,
-                observation.public_state,
-                observation.observer_hand,
-                theta,
+                observation,
+                theta_samples,
                 observed_player=observation.player,
                 feature_names=feature_names,
-                mode=LikelihoodMode.ABSOLUTE,
+                mode=mode,
             )
             bin_index = min(num_bins - 1, int(probability * num_bins))
             label = int(candidate == observation.chosen_card)
@@ -362,6 +387,84 @@ def calibration_curve(
         expected_calibration_error=ece,
         num_events=num_events,
     )
+
+
+def _posterior_theta_samples(
+    posterior_mean: Sequence[float],
+    posterior_std: Sequence[float] | None,
+    *,
+    posterior_samples: int,
+    seed: int,
+) -> tuple[tuple[float, ...], ...]:
+    mean = tuple(float(value) for value in posterior_mean)
+    if posterior_samples < 0:
+        raise ValueError("posterior_samples cannot be negative")
+    if posterior_samples == 0:
+        return (mean,)
+    if posterior_std is None:
+        raise ValueError("posterior_std is required when posterior_samples is positive")
+    std = tuple(float(value) for value in posterior_std)
+    if len(std) != len(mean):
+        raise ValueError("posterior_std length must match posterior_mean length")
+    if any(value < 0.0 for value in std):
+        raise ValueError("posterior_std values cannot be negative")
+
+    rng = random.Random(seed)
+    return tuple(
+        tuple(
+            rng.gauss(mean_value, std_value)
+            for mean_value, std_value in zip(mean, std)
+        )
+        for _ in range(posterior_samples)
+    )
+
+
+def _posterior_predictive_log_likelihood(
+    observations: Sequence[OpponentMoveObservation],
+    theta_samples: Sequence[Sequence[float]],
+    *,
+    feature_names: Sequence[str],
+    mode: LikelihoodMode,
+) -> float:
+    total = 0.0
+    for observation in observations:
+        probability = _posterior_predictive_card_probability(
+            observation.chosen_card,
+            observation,
+            theta_samples,
+            observed_player=observation.player,
+            feature_names=feature_names,
+            mode=mode,
+        )
+        if probability <= 0.0:
+            return -math.inf
+        total += math.log(probability)
+    return total
+
+
+def _posterior_predictive_card_probability(
+    card: Card,
+    observation: OpponentMoveObservation,
+    theta_samples: Sequence[Sequence[float]],
+    *,
+    observed_player: int,
+    feature_names: Sequence[str],
+    mode: LikelihoodMode,
+) -> float:
+    if not theta_samples:
+        raise ValueError("theta_samples cannot be empty")
+    return sum(
+        marginal_card_probability(
+            card,
+            observation.public_state,
+            observation.observer_hand,
+            theta,
+            observed_player=observed_player,
+            feature_names=feature_names,
+            mode=mode,
+        )
+        for theta in theta_samples
+    ) / len(theta_samples)
 
 
 def _build_calibration_bin(
