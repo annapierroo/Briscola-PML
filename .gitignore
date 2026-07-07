@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local notes and generated outputs
+notes/
+artifacts/*
+!artifacts/.gitkeep
