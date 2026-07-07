@@ -12,6 +12,7 @@ from inference.beliefs import (
     compatible_hands_containing,
     compatible_unknown_cards,
     hand_count,
+    known_opponent_cards,
 )
 from opponents import FEATURE_NAMES, card_features
 
@@ -19,7 +20,7 @@ from opponents import FEATURE_NAMES, card_features
 class LikelihoodMode(str, Enum):
     """Whether to include the chance that the card is in hand"""
 
-    # Used for fitting theta; the hand-inclusion factor is constant in theta.
+    # Equivalent for fitting theta; the hand-inclusion factor is constant in theta.
     CONDITIONAL = "conditional"
     # Used for predictive probabilities and calibration.
     ABSOLUTE = "absolute"
@@ -74,10 +75,30 @@ def marginal_card_probability(
     mode = LikelihoodMode(mode)
     _validate_theta(theta, feature_names)
 
-    unknown_cards = compatible_unknown_cards(public_state, observer_hand)
-    hand_size = _opponent_hand_size(public_state, observed_player)
-    containing_count = hand_count(len(unknown_cards) - 1, hand_size - 1)
-    if observed_card not in unknown_cards or containing_count == 0:
+    opponent_player = _target_player(public_state, observed_player)
+    unknown_cards = compatible_unknown_cards(
+        public_state,
+        observer_hand,
+        opponent_player=opponent_player,
+    )
+    required_cards = known_opponent_cards(
+        public_state,
+        observer_hand,
+        opponent_player=opponent_player,
+    )
+    hand_size = _opponent_hand_size(public_state, opponent_player)
+    if observed_card not in unknown_cards or any(
+        card not in unknown_cards for card in required_cards
+    ):
+        return 0.0
+
+    required_with_observed = _required_cards_with_observed(required_cards, observed_card)
+    containing_count = hand_count(
+        len(unknown_cards),
+        hand_size,
+        required_count=len(required_with_observed),
+    )
+    if containing_count == 0:
         return 0.0
 
     use_mc = (
@@ -90,10 +111,11 @@ def marginal_card_probability(
         average_probability = _mc_average_probability(
             observed_card=observed_card,
             unknown_cards=unknown_cards,
+            required_cards=required_cards,
             hand_size=hand_size,
             public_state=public_state,
             theta=theta,
-            player=observed_player,
+            player=opponent_player,
             feature_names=feature_names,
             temperature=temperature,
             num_samples=mc_samples,
@@ -103,10 +125,11 @@ def marginal_card_probability(
         average_probability = _exact_average_probability(
             observed_card=observed_card,
             unknown_cards=unknown_cards,
+            required_cards=required_cards,
             hand_size=hand_size,
             public_state=public_state,
             theta=theta,
-            player=observed_player,
+            player=opponent_player,
             feature_names=feature_names,
             temperature=temperature,
         )
@@ -114,7 +137,13 @@ def marginal_card_probability(
     if mode == LikelihoodMode.CONDITIONAL:
         return average_probability
 
-    total_count = hand_count(len(unknown_cards), hand_size)
+    total_count = hand_count(
+        len(unknown_cards),
+        hand_size,
+        required_count=len(required_cards),
+    )
+    if total_count == 0:
+        return 0.0
     # Absolute mode restores P(card in hand | public information).
     return average_probability * containing_count / total_count
 
@@ -157,6 +186,7 @@ def _exact_average_probability(
     *,
     observed_card: Card,
     unknown_cards: tuple[Card, ...],
+    required_cards: tuple[Card, ...],
     hand_size: int,
     public_state: PublicState,
     theta: Sequence[float],
@@ -164,7 +194,12 @@ def _exact_average_probability(
     feature_names: Sequence[str],
     temperature: float,
 ) -> float:
-    hands = compatible_hands_containing(unknown_cards, hand_size, observed_card)
+    hands = compatible_hands_containing(
+        unknown_cards,
+        hand_size,
+        observed_card,
+        required_cards=required_cards,
+    )
     if not hands:
         return 0.0
 
@@ -186,6 +221,7 @@ def _mc_average_probability(
     *,
     observed_card: Card,
     unknown_cards: tuple[Card, ...],
+    required_cards: tuple[Card, ...],
     hand_size: int,
     public_state: PublicState,
     theta: Sequence[float],
@@ -201,11 +237,17 @@ def _mc_average_probability(
         return 0.0
 
     rng = random.Random(seed)
-    remaining_cards = [card for card in unknown_cards if card != observed_card]
+    base_hand = _required_cards_with_observed(required_cards, observed_card)
+    draw_count = hand_size - len(base_hand)
+    if draw_count < 0:
+        return 0.0
+    remaining_cards = [card for card in unknown_cards if card not in base_hand]
+    if draw_count > len(remaining_cards):
+        return 0.0
     total = 0.0
     for _ in range(num_samples):
-        rest = tuple(rng.sample(remaining_cards, hand_size - 1))
-        hand = (observed_card, *rest)
+        rest = tuple(rng.sample(remaining_cards, draw_count))
+        hand = (*base_hand, *rest)
         total += local_card_probability(
             observed_card,
             hand,
@@ -218,6 +260,13 @@ def _mc_average_probability(
     return total / num_samples
 
 
+def _target_player(
+    public_state: PublicState,
+    observed_player: PlayerId | None,
+) -> PlayerId | None:
+    return public_state.current_player if observed_player is None else observed_player
+
+
 def _opponent_hand_size(
     public_state: PublicState,
     observed_player: PlayerId | None,
@@ -228,6 +277,13 @@ def _opponent_hand_size(
     if current_player is None:
         raise ValueError("observed_player is required when no current player is set")
     return public_state.hand_sizes[current_player]
+
+
+def _required_cards_with_observed(
+    required_cards: tuple[Card, ...],
+    observed_card: Card,
+) -> tuple[Card, ...]:
+    return (observed_card,) + tuple(card for card in required_cards if card != observed_card)
 
 
 def _softmax_probability(

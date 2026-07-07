@@ -221,3 +221,4 @@ __marimo__/
 notes/
 artifacts/*
 !artifacts/.gitkeep
+notebooks/

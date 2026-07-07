@@ -171,6 +171,8 @@ def _observed_cards(hand: tuple[Card, ...], public_state: PublicState) -> set[Ca
     observed = set(hand)
     observed.update(played.card for played in public_state.current_trick)
     observed.update(played.card for played in public_state.played_cards)
+    for known_cards in public_state.known_cards_by_player:
+        observed.update(known_cards)
     if public_state.trump_card_in_stock:
         observed.add(public_state.trump_card)
     return observed

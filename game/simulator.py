@@ -39,6 +39,7 @@ class PublicState:
     trump_suit: Suit
     trump_card: Card
     trump_card_in_stock: bool
+    known_cards_by_player: tuple[tuple[Card, ...], tuple[Card, ...]]
     leader: PlayerId
     current_player: PlayerId | None
     current_trick: tuple[PlayedCard, ...]
@@ -182,6 +183,7 @@ class BriscolaGame:
             trump_suit=self.trump_suit,
             trump_card=self.trump_card,
             trump_card_in_stock=self.trump_card in self.stock,
+            known_cards_by_player=self._known_cards_by_player(),
             leader=self.leader,
             current_player=None if self.finished else self.current_player,
             current_trick=tuple(self.current_trick),
@@ -191,6 +193,14 @@ class BriscolaGame:
             hand_sizes=(len(self.hands[0]), len(self.hands[1])),
             tricks_played=len(self.trick_history),
             finished=self.finished,
+        )
+
+    def _known_cards_by_player(self) -> tuple[tuple[Card, ...], tuple[Card, ...]]:
+        if self.trump_card in self.stock:
+            return ((), ())
+        return tuple(
+            (self.trump_card,) if self.trump_card in self.hands[player] else ()
+            for player in (0, 1)
         )
 
     def player_view(self, player: PlayerId) -> PlayerView:
