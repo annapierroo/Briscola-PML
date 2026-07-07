@@ -7,9 +7,11 @@ from collections.abc import Sequence
 from game import Card, PlayedCard, PlayerId, PublicState, Rank, full_deck, trick_winner
 
 MAX_CARD_POINTS = 11
+# Strength is encoded from 0 to 9 in the Briscola rank order.
 MAX_CARD_STRENGTH = 9
 TOTAL_CARDS = 40
 TOTAL_TRUMPS = 10
+# At most nine stronger cards can share the same suit.
 MAX_HIGHER_SAME_SUIT = 9
 
 CORE_FEATURE_NAMES: tuple[str, ...] = (

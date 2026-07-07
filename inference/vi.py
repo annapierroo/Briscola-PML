@@ -204,6 +204,7 @@ def fit_variational_posterior(
         )
         elbo_value = float(elbo.detach())
         if elbo_value > best_elbo:
+            # Keep the best iterate; stochastic ELBO can get worse near the end.
             best_elbo = elbo_value
             best_step = step_index + 1
             best_mean = mean.detach().clone()
@@ -253,6 +254,7 @@ def _prepare_observation(
     if not hands:
         raise ValueError("observation has no compatible hidden hands")
 
+    # compatible_hands_containing returns hands with the observed card first.
     feature_rows = [
         [
             card_features(

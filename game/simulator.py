@@ -112,11 +112,7 @@ class BriscolaGame:
 
     @classmethod
     def new(cls, seed: int | None = None, first_player: PlayerId = 0) -> "BriscolaGame":
-        """Start a shuffled game
-
-        The seventh card becomes the visible trump card. We keep it at the
-        bottom of the stock, which makes it the last card drawn
-        """
+        """Start a shuffled game"""
 
         rng = random.Random(seed)
         cards = list(full_deck())
@@ -138,15 +134,12 @@ class BriscolaGame:
 
         hands = (cards[0:3], cards[3:6])
         trump_card = cards[6]
+        # The visible trump is drawn last.
         stock = cards[7:] + [trump_card]
         return cls(hands=hands, stock=stock, trump_card=trump_card, first_player=first_player)
 
     def legal_moves(self, player: PlayerId | None = None) -> tuple[Card, ...]:
-        """Cards the player can play right now
-
-        Briscola has no follow-suit constraint, so the whole hand is legal
-        for the player whose turn it is
-        """
+        """Cards the player can play right now"""
 
         if player is None:
             player = self.current_player
@@ -157,6 +150,7 @@ class BriscolaGame:
             return ()
         if player != self.current_player:
             return ()
+        # Briscola has no follow-suit constraint.
         return tuple(self.hands[player])
 
     def play_card(self, player: PlayerId, card: Card) -> TrickResult | None:

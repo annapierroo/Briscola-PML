@@ -178,11 +178,7 @@ def train_test_split(
     train_fraction: float = 0.7,
     split_unit: str = "observation",
 ) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
-    """Deterministic split that preserves observation order.
-
-    ``split_unit="game"`` keeps every move from the same simulated game in the
-    same partition, avoiding leakage between train and held-out data.
-    """
+    """Deterministic split that preserves observation order."""
 
     if not 0.0 < train_fraction < 1.0:
         raise ValueError("train_fraction must be between 0 and 1")
@@ -205,6 +201,7 @@ def _train_test_split_by_game(
     *,
     train_fraction: float,
 ) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
+    # Keep all moves from each game in the same partition.
     game_ids = tuple(dict.fromkeys(observation.game_id for observation in observations))
     if len(game_ids) < 2:
         raise ValueError("game split requires observations from at least two games")
@@ -351,6 +348,7 @@ def calibration_curve(
     )
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(num_bins)]
     for observation in observations:
+        # Calibration is computed over candidate-card events.
         for candidate in compatible_unknown_cards(
             observation.public_state,
             observation.observer_hand,

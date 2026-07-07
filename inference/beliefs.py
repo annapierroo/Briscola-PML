@@ -13,14 +13,9 @@ def compatible_unknown_cards(
     public_state: PublicState,
     observer_hand: tuple[Card, ...],
 ) -> tuple[Card, ...]:
-    """Cards that could still belong to the opponent.
+    """Cards that could still belong to the opponent."""
 
-    This implements the simplifying assumption from the project formulation:
-    local opponent hands are treated as uniformly distributed over the cards
-    not known to the observer. Exact draw-order filtering is deliberately left
-    for a later extension.
-    """
-
+    # Baseline belief: remove known cards, but do not filter by draw order.
     known_cards = set(observer_hand)
     known_cards.update(played.card for played in public_state.played_cards)
     known_cards.update(played.card for played in public_state.current_trick)

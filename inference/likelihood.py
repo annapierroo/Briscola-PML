@@ -19,8 +19,10 @@ from opponents import FEATURE_NAMES, card_features
 class LikelihoodMode(str, Enum):
     """Whether to include the chance that the card is in hand"""
 
-    CONDITIONAL = "conditional" # p(playing card | card in had, public state, theta)
-    ABSOLUTE = "absolute" # p(card in hand) * p(playing card | card in hand, public state, theta)
+    # Used for fitting theta; the hand-inclusion factor is constant in theta.
+    CONDITIONAL = "conditional"
+    # Used for predictive probabilities and calibration.
+    ABSOLUTE = "absolute"
 
 
 def local_card_probability(
@@ -113,6 +115,7 @@ def marginal_card_probability(
         return average_probability
 
     total_count = hand_count(len(unknown_cards), hand_size)
+    # Absolute mode restores P(card in hand | public information).
     return average_probability * containing_count / total_count
 
 

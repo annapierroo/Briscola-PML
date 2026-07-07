@@ -1,4 +1,4 @@
-"""Synthetic opponent models used to generate observed Briscola moves """
+"""Synthetic opponent models used to generate observed Briscola moves"""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ def zero_theta(feature_names: Sequence[str] = FEATURE_NAMES) -> tuple[float, ...
     return tuple(0.0 for _ in feature_names)
 
 
+# Hand-tuned profiles used to generate synthetic data.
 RANDOM_THETA = zero_theta()
 AGGRESSIVE_THETA = theta_from_weights(
     is_trump=0.4,
