@@ -40,6 +40,11 @@ RUN_FIELDNAMES = (
     "calibration_mode",
     "posterior_samples",
     "feature_count",
+    "feature_names",
+    "theta_true",
+    "theta_posterior_mean",
+    "theta_posterior_std",
+    "theta_error",
     "observations",
     "train_observations",
     "test_observations",
@@ -409,6 +414,33 @@ def _format_row(row: dict[str, Any]) -> str:
     return message
 
 
+def _json_cell(value: Any) -> str:
+    return json.dumps(_json_ready(value), separators=(",", ":"))
+
+
+def _theta_rows(
+    feature_names: tuple[str, ...],
+    true_theta: tuple[float, ...],
+    posterior_mean: tuple[float, ...],
+    posterior_std: tuple[float, ...],
+) -> list[dict[str, float | str]]:
+    return [
+        {
+            "feature": feature,
+            "true": truth,
+            "posterior_mean": mean,
+            "posterior_std": std,
+            "error": mean - truth,
+        }
+        for feature, truth, mean, std in zip(
+            feature_names,
+            true_theta,
+            posterior_mean,
+            posterior_std,
+        )
+    ]
+
+
 def _limit_observations(
     observations: tuple[Any, ...],
     limit: int,
@@ -546,6 +578,12 @@ def _run_validation_case(
         estimate - truth
         for estimate, truth in zip(posterior.mean, true_theta)
     )
+    theta_rows = _theta_rows(
+        feature_names,
+        true_theta,
+        posterior.mean,
+        posterior.std,
+    )
     row = {
         "feature_set": spec.feature_set,
         "profile": spec.profile,
@@ -557,6 +595,12 @@ def _run_validation_case(
         "calibration_mode": spec.calibration_mode,
         "posterior_samples": spec.posterior_samples,
         "feature_count": len(feature_names),
+        "feature_names": _json_cell(feature_names),
+        "theta_true": _json_cell(true_theta),
+        "theta_posterior_mean": _json_cell(posterior.mean),
+        "theta_posterior_std": _json_cell(posterior.std),
+        "theta_error": _json_cell(posterior_error),
+        "theta": theta_rows,
         "observations": len(observations),
         "train_observations": len(train),
         "test_observations": len(test),
@@ -679,7 +723,7 @@ def _write_csv(
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(_csv_row(row, fieldnames) for row in rows)
 
 
 def _prepare_incremental_csv(path: Path, fieldnames: tuple[str, ...]) -> None:
@@ -696,7 +740,11 @@ def _append_csv_row(
 ) -> None:
     with path.open("a", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writerow(row)
+        writer.writerow(_csv_row(row, fieldnames))
+
+
+def _csv_row(row: dict[str, Any], fieldnames: tuple[str, ...]) -> dict[str, Any]:
+    return {field: row.get(field) for field in fieldnames}
 
 
 def _run_fieldnames(include_importance_reference: bool) -> tuple[str, ...]:
