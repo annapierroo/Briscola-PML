@@ -105,7 +105,7 @@ RUN_FIELDNAMES = (
     "feature_set",
     "profile",
     "seed",
-    "theta_scale",
+    "opponent_temperature",
     "prior_std",
     "posterior_samples",
     "feature_count",
@@ -151,7 +151,7 @@ class ExperimentSpec:
     profile: str
     seed: int
     num_games: int
-    theta_scale: float
+    opponent_temperature: float
     vi_steps: int
     prior_std: float
     elbo_samples: int
@@ -314,10 +314,10 @@ def _add_common_experiment_args(
         help="number of synthetic games to generate",
     )
     parser.add_argument(
-        "--theta-scale",
+        "--opponent-temperature",
         type=float,
         default=1.0,
-        help="multiplier applied to each synthetic theta before generating data",
+        help="softmax temperature used by the synthetic opponent and likelihood",
     )
     parser.add_argument(
         "--vi-steps",
@@ -348,8 +348,8 @@ def _add_common_experiment_args(
 def _validate_common_args(args: argparse.Namespace) -> None:
     if args.num_games < 2:
         raise ValueError("num_games must be at least 2 for the game-level split")
-    if not math.isfinite(args.theta_scale) or args.theta_scale < 0.0:
-        raise ValueError("theta_scale must be a finite non-negative value")
+    if not math.isfinite(args.opponent_temperature) or args.opponent_temperature <= 0.0:
+        raise ValueError("opponent_temperature must be a finite positive value")
     if args.vi_steps <= 0:
         raise ValueError("vi_steps must be positive")
     if not math.isfinite(args.prior_std) or args.prior_std <= 0:
@@ -375,7 +375,7 @@ def _run_single(args: argparse.Namespace) -> None:
         profile=args.profile,
         seed=args.seed,
         num_games=args.num_games,
-        theta_scale=args.theta_scale,
+        opponent_temperature=args.opponent_temperature,
         vi_steps=args.vi_steps,
         prior_std=args.prior_std,
         elbo_samples=args.elbo_samples,
@@ -385,7 +385,8 @@ def _run_single(args: argparse.Namespace) -> None:
         "single",
         "starting validation "
         f"(feature_set={spec.feature_set}, profile={spec.profile}, "
-        f"games={spec.num_games}, theta_scale={spec.theta_scale}, "
+        f"games={spec.num_games}, "
+        f"opponent_temperature={spec.opponent_temperature}, "
         f"posterior_samples={spec.posterior_samples}, seed={spec.seed})",
     )
     row = _run_case(spec, progress_label="single")
@@ -427,7 +428,7 @@ def _iter_compare_specs(args: argparse.Namespace) -> tuple[ExperimentSpec, ...]:
             profile=profile,
             seed=seed,
             num_games=args.num_games,
-            theta_scale=args.theta_scale,
+            opponent_temperature=args.opponent_temperature,
             vi_steps=args.vi_steps,
             prior_std=args.prior_std,
             elbo_samples=args.elbo_samples,
@@ -447,10 +448,7 @@ def _run_case(
     progress_label: str | None = None,
 ) -> dict[str, Any]:
     feature_names = FEATURE_SETS[spec.feature_set]
-    true_theta = _scale_theta(
-        THETA_PROFILES[spec.feature_set][spec.profile],
-        spec.theta_scale,
-    )
+    true_theta = THETA_PROFILES[spec.feature_set][spec.profile]
 
     if progress_label is not None:
         _print_progress(progress_label, "collecting observations...")
@@ -479,6 +477,7 @@ def _run_case(
         learning_rate=DEFAULT_LEARNING_RATE,
         num_elbo_samples=spec.elbo_samples,
         prior_std=spec.prior_std,
+        temperature=spec.opponent_temperature,
         seed=spec.seed + 4,
     )
 
@@ -491,6 +490,7 @@ def _run_case(
         posterior_samples=spec.posterior_samples,
         seed=spec.seed + 5,
         feature_names=feature_names,
+        temperature=spec.opponent_temperature,
     )
     posterior_error = tuple(
         estimate - truth
@@ -506,7 +506,7 @@ def _run_case(
         "feature_set": spec.feature_set,
         "profile": spec.profile,
         "seed": spec.seed,
-        "theta_scale": spec.theta_scale,
+        "opponent_temperature": spec.opponent_temperature,
         "prior_std": spec.prior_std,
         "posterior_samples": predictive.posterior_samples,
         "feature_count": len(feature_names),
@@ -549,6 +549,7 @@ def _collect_observations(
             true_theta,
             seed=spec.seed + 1,
             feature_names=feature_names,
+            temperature=spec.opponent_temperature,
         ),
         observer_model=RandomOpponent(seed=spec.seed + 2),
         num_games=spec.num_games,
@@ -568,7 +569,7 @@ def _build_single_report(spec: ExperimentSpec, row: dict[str, Any]) -> dict[str,
             "feature_names": row["feature_names"],
             "num_games": spec.num_games,
             "train_fraction": DEFAULT_TRAIN_FRACTION,
-            "theta_scale": spec.theta_scale,
+            "opponent_temperature": spec.opponent_temperature,
             "training_likelihood": "sequential",
             "vi_steps": spec.vi_steps,
             "learning_rate": DEFAULT_LEARNING_RATE,
@@ -668,7 +669,7 @@ def _write_compare_outputs(
             "train_fraction": DEFAULT_TRAIN_FRACTION,
             "max_train_observations": args.max_train_observations,
             "max_test_observations": args.max_test_observations,
-            "theta_scale": args.theta_scale,
+            "opponent_temperature": args.opponent_temperature,
             "training_likelihood": "sequential",
             "vi_steps": args.vi_steps,
             "learning_rate": DEFAULT_LEARNING_RATE,
@@ -785,7 +786,7 @@ def _theta_rows(
 def _format_spec(spec: ExperimentSpec) -> str:
     return (
         f"feature_set={spec.feature_set}, profile={spec.profile}, seed={spec.seed}, "
-        f"theta_scale={spec.theta_scale}"
+        f"opponent_temperature={spec.opponent_temperature}"
     )
 
 
@@ -808,7 +809,7 @@ def _print_single_report(report: dict[str, Any], output: Path) -> None:
     print(f"feature set: {config['feature_set']}")
     print(f"profile: {config['profile']}")
     print(f"data source: {config['data_source']}")
-    print(f"theta scale: {config['theta_scale']}")
+    print(f"opponent temperature: {config['opponent_temperature']}")
     print("split: game-level 75/25")
     print("training likelihood: sequential")
     print(f"prior std: {config['prior_std']}")
@@ -885,10 +886,6 @@ def _json_ready(value: Any) -> Any:
 
 def _l2_norm(values: tuple[float, ...]) -> float:
     return math.sqrt(sum(value * value for value in values))
-
-
-def _scale_theta(theta: tuple[float, ...], scale: float) -> tuple[float, ...]:
-    return tuple(scale * value for value in theta)
 
 
 if __name__ == "__main__":

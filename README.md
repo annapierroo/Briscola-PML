@@ -162,7 +162,7 @@ python3 scripts/run_experiment.py single \
   --num-games 100 \
   --feature-set style \
   --profile greedy_points \
-  --theta-scale 1.0 \
+  --opponent-temperature 1.0 \
   --vi-steps 300 \
   --elbo-samples 2 \
   --posterior-samples 50 \
@@ -179,8 +179,9 @@ The report tells us:
 
 Useful flags:
 
-- `--theta-scale` makes the synthetic opponent style weaker or stronger before
-  data generation.
+- `--opponent-temperature` controls how deterministic the synthetic opponent's
+  softmax policy is. Lower values make the opponent follow its preferences more
+  sharply.
 - `--prior-std` changes the width of the Gaussian prior over `theta`.
 - `--vi-steps` controls how long we optimize the variational posterior.
 - `--posterior-samples` controls how many theta samples from `q(theta)` we use
@@ -201,7 +202,7 @@ python3 scripts/run_experiment.py compare \
   --profiles aggressive conservative greedy_points \
   --seeds 0 1 2 \
   --num-games 20 \
-  --theta-scale 1.0 \
+  --opponent-temperature 1.0 \
   --vi-steps 300 \
   --posterior-samples 20 \
   --jobs 4
