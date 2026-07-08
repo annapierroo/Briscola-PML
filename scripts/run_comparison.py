@@ -1,4 +1,4 @@
-"""Compare validation runs across feature sets, profiles, and seeds"""
+"""Compare validation runs across feature sets, profiles, and seeds."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import csv
 import json
 import math
+from pathlib import Path
 import statistics
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,16 +18,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments import (  # noqa: E402
-    calibration_curve,
     heldout_predictive_evaluation,
-    importance_sampling_reference,
     train_test_split,
 )
-from inference import LikelihoodMode, fit_variational_posterior  # noqa: E402
+from inference import fit_variational_posterior  # noqa: E402
 from scripts import run_validation as validation  # noqa: E402
 
 
-DEFAULT_FEATURE_SETS = ("core", "compact", "trump_count", "extended")
+DEFAULT_FEATURE_SETS = ("style", "core", "compact", "trump_count", "extended")
 DEFAULT_PROFILES = ("aggressive", "conservative", "greedy_points")
 RUN_FIELDNAMES = (
     "feature_set",
@@ -35,11 +33,7 @@ RUN_FIELDNAMES = (
     "seed",
     "theta_scale",
     "split_unit",
-    "train_mode",
-    "eval_mode",
-    "calibration_mode",
     "prior_std",
-    "posterior_samples",
     "feature_count",
     "feature_names",
     "theta_true",
@@ -49,7 +43,6 @@ RUN_FIELDNAMES = (
     "observations",
     "train_observations",
     "test_observations",
-    "calibration_observations",
     "theta_l2_error",
     "heldout_posterior_log_likelihood",
     "heldout_baseline_log_likelihood",
@@ -57,59 +50,35 @@ RUN_FIELDNAMES = (
     "heldout_posterior_mean_logp",
     "heldout_baseline_mean_logp",
     "heldout_mean_logp_delta",
-    "calibration_ece",
-    "mean_theta_heldout_log_likelihood",
-    "mean_theta_heldout_loglik_delta",
-    "mean_theta_heldout_mean_logp",
-    "mean_theta_heldout_mean_logp_delta",
-    "mean_theta_calibration_ece",
-    "posterior_predictive_heldout_log_likelihood",
-    "posterior_predictive_heldout_loglik_delta",
-    "posterior_predictive_heldout_mean_logp",
-    "posterior_predictive_heldout_mean_logp_delta",
-    "posterior_predictive_calibration_ece",
     "initial_elbo",
     "final_elbo",
+    "best_elbo",
+    "best_step",
 )
 SUMMARY_METRICS = (
     "theta_l2_error",
     "heldout_loglik_delta",
     "heldout_mean_logp_delta",
-    "calibration_ece",
-    "mean_theta_heldout_loglik_delta",
-    "posterior_predictive_heldout_loglik_delta",
-    "mean_theta_heldout_mean_logp_delta",
-    "posterior_predictive_heldout_mean_logp_delta",
-    "mean_theta_calibration_ece",
-    "posterior_predictive_calibration_ece",
     "final_elbo",
+    "best_elbo",
 )
-REFERENCE_RUN_FIELDNAMES = ("importance_ess",)
-REFERENCE_SUMMARY_METRICS = ("importance_ess",)
 
 
 def main() -> None:
     args = _parse_args()
     run_specs = tuple(_iter_run_specs(args))
-    include_importance_reference = not args.skip_importance_reference
     runs_csv_path = args.output_dir / f"{args.output_prefix}_runs.csv"
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    _prepare_incremental_csv(
-        runs_csv_path,
-        _run_fieldnames(include_importance_reference),
-    )
+    _prepare_incremental_csv(runs_csv_path, RUN_FIELDNAMES)
+
     _print_progress(f"starting comparison with {len(run_specs)} runs, jobs={args.jobs}")
     rows = _run_cases(
         run_specs,
         args,
         incremental_runs_csv_path=runs_csv_path,
-        include_importance_reference=include_importance_reference,
     )
 
-    summary = summarize_rows(
-        rows,
-        include_importance_reference=include_importance_reference,
-    )
+    summary = summarize_rows(rows)
     output_paths = _write_outputs(
         rows=rows,
         summary=summary,
@@ -121,14 +90,7 @@ def main() -> None:
     _print_progress(f"wrote summary CSV to {output_paths['summary_csv']}")
 
 
-def summarize_rows(
-    rows: list[dict[str, Any]],
-    *,
-    include_importance_reference: bool | None = None,
-) -> list[dict[str, Any]]:
-    if include_importance_reference is None:
-        include_importance_reference = all("importance_ess" in row for row in rows)
-    metrics = _summary_metrics(include_importance_reference)
+def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
         key = (str(row["feature_set"]), str(row["profile"]))
@@ -143,7 +105,7 @@ def summarize_rows(
             "runs": len(group),
             "feature_count": group[0]["feature_count"],
         }
-        for metric in metrics:
+        for metric in SUMMARY_METRICS:
             values = _finite_metric_values(group, metric)
             item[f"{metric}_mean"] = statistics.fmean(values) if values else math.nan
             item[f"{metric}_std"] = (
@@ -191,9 +153,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data-source",
-        choices=("simulator", "matched"),
-        default="matched",
-        help="whether actions come from the simulator hand or the matched local belief",
+        choices=("simulator",),
+        default="simulator",
+        help="source of synthetic sequential games",
     )
     parser.add_argument(
         "--num-games",
@@ -232,24 +194,6 @@ def _parse_args() -> argparse.Namespace:
         help="multiplier applied to each synthetic theta before generating data",
     )
     parser.add_argument(
-        "--train-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used while fitting theta",
-    )
-    parser.add_argument(
-        "--eval-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used for held-out prediction",
-    )
-    parser.add_argument(
-        "--calibration-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used for calibration bins",
-    )
-    parser.add_argument(
         "--vi-steps",
         type=int,
         default=1000,
@@ -272,46 +216,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Monte Carlo samples from q(theta) per ELBO step",
-    )
-    parser.add_argument(
-        "--posterior-samples",
-        type=int,
-        default=16,
-        help="posterior samples for held-out/calibration prediction; 0 uses posterior mean",
-    )
-    parser.add_argument(
-        "--importance-samples",
-        type=int,
-        default=1000,
-        help="prior samples for the importance-sampling reference",
-    )
-    parser.add_argument(
-        "--reference-observations",
-        type=int,
-        default=12,
-        help="training observations used by the importance-sampling reference",
-    )
-    parser.add_argument(
-        "--skip-importance-reference",
-        action="store_true",
-        help="skip the prior-sample importance reference to make comparison runs faster",
-    )
-    parser.add_argument(
-        "--calibration-bins",
-        type=int,
-        default=5,
-        help="number of bins for the calibration curve",
-    )
-    parser.add_argument(
-        "--skip-calibration",
-        action="store_true",
-        help="skip calibration curves and write NaN ECE values",
-    )
-    parser.add_argument(
-        "--calibration-observations",
-        type=int,
-        default=0,
-        help="cap held-out observations used for calibration; 0 uses evaluated test observations",
     )
     parser.add_argument(
         "--progress-interval",
@@ -365,16 +269,6 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
-    if args.posterior_samples < 0:
-        raise ValueError("posterior_samples cannot be negative")
-    if not args.skip_importance_reference and args.importance_samples <= 0:
-        raise ValueError("importance_samples must be positive")
-    if not args.skip_importance_reference and args.reference_observations <= 0:
-        raise ValueError("reference_observations must be positive")
-    if args.calibration_bins <= 0:
-        raise ValueError("calibration_bins must be positive")
-    if args.calibration_observations < 0:
-        raise ValueError("calibration_observations cannot be negative")
     if args.progress_interval <= 0:
         raise ValueError("progress_interval must be positive")
     if args.jobs <= 0:
@@ -396,20 +290,10 @@ def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
             max_test_observations=args.max_test_observations,
             split_unit=args.split_unit,
             theta_scale=args.theta_scale,
-            train_mode=args.train_mode,
-            eval_mode=args.eval_mode,
-            calibration_mode=args.calibration_mode,
             vi_steps=args.vi_steps,
             learning_rate=args.learning_rate,
             prior_std=args.prior_std,
             elbo_samples=args.elbo_samples,
-            posterior_samples=args.posterior_samples,
-            importance_samples=args.importance_samples,
-            reference_observations=args.reference_observations,
-            skip_importance_reference=args.skip_importance_reference,
-            calibration_bins=args.calibration_bins,
-            skip_calibration=args.skip_calibration,
-            calibration_observations=args.calibration_observations,
             progress_interval=args.progress_interval,
         )
         for feature_set in args.feature_sets
@@ -426,15 +310,11 @@ def _format_spec(spec: SimpleNamespace) -> str:
 
 
 def _format_row(row: dict[str, Any]) -> str:
-    message = (
-        f"pp_delta={row['posterior_predictive_heldout_loglik_delta']:.3f}, "
-        f"mean_delta={row['mean_theta_heldout_loglik_delta']:.3f}, "
-        f"theta_l2={row['theta_l2_error']:.3f}, "
-        f"pp_ece={row['posterior_predictive_calibration_ece']:.3f}"
+    return (
+        f"delta={row['heldout_loglik_delta']:.3f}, "
+        f"mean_delta={row['heldout_mean_logp_delta']:.3f}, "
+        f"theta_l2={row['theta_l2_error']:.3f}"
     )
-    if "importance_ess" in row:
-        message += f", ess={row['importance_ess']:.1f}"
-    return message
 
 
 def _json_cell(value: Any) -> str:
@@ -478,16 +358,14 @@ def _run_cases(
     args: argparse.Namespace,
     *,
     incremental_runs_csv_path: Path,
-    include_importance_reference: bool,
 ) -> list[dict[str, Any]]:
-    fieldnames = _run_fieldnames(include_importance_reference)
     if args.jobs == 1:
         rows: list[dict[str, Any]] = []
         for index, spec in enumerate(run_specs, start=1):
             _print_progress(f"run {index}/{len(run_specs)}: {_format_spec(spec)}")
             row = _run_validation_case(spec, show_vi_progress=args.show_vi_progress)
             rows.append(row)
-            _append_csv_row(incremental_runs_csv_path, row, fieldnames)
+            _append_csv_row(incremental_runs_csv_path, row, RUN_FIELDNAMES)
             _print_progress(f"run {index}/{len(run_specs)} done: {_format_row(row)}")
         return rows
 
@@ -507,7 +385,7 @@ def _run_cases(
                     f"run {index}/{len(run_specs)} failed: {_format_spec(spec)}"
                 ) from exc
             rows_by_index[index] = row
-            _append_csv_row(incremental_runs_csv_path, row, fieldnames)
+            _append_csv_row(incremental_runs_csv_path, row, RUN_FIELDNAMES)
             _print_progress(
                 f"run {index}/{len(run_specs)} done "
                 f"({completed}/{len(run_specs)} completed): {_format_row(row)}"
@@ -538,16 +416,10 @@ def _run_validation_case(
     )
     train = _limit_observations(train, spec.max_train_observations)
     test = _limit_observations(test, spec.max_test_observations)
-    calibration_test = (
-        ()
-        if spec.skip_calibration
-        else _limit_observations(test, spec.calibration_observations)
-    )
     progress_callback = validation._print_vi_progress if show_vi_progress else None
     posterior = fit_variational_posterior(
         train,
         feature_names=feature_names,
-        mode=LikelihoodMode(spec.train_mode),
         num_steps=spec.vi_steps,
         learning_rate=spec.learning_rate,
         num_elbo_samples=spec.elbo_samples,
@@ -556,48 +428,11 @@ def _run_validation_case(
         progress_callback=progress_callback,
         progress_interval=spec.progress_interval,
     )
-    mean_predictive = heldout_predictive_evaluation(
+    predictive = heldout_predictive_evaluation(
         test,
         posterior_mean=posterior.mean,
         feature_names=feature_names,
-        mode=LikelihoodMode(spec.eval_mode),
     )
-    if spec.skip_calibration:
-        mean_calibration = SimpleNamespace(expected_calibration_error=math.nan)
-    else:
-        mean_calibration = calibration_curve(
-            calibration_test,
-            posterior.mean,
-            feature_names=feature_names,
-            num_bins=spec.calibration_bins,
-            mode=LikelihoodMode(spec.calibration_mode),
-        )
-    if spec.posterior_samples > 0:
-        predictive = heldout_predictive_evaluation(
-            test,
-            posterior_mean=posterior.mean,
-            posterior_std=posterior.std,
-            posterior_samples=spec.posterior_samples,
-            seed=spec.seed + 6,
-            feature_names=feature_names,
-            mode=LikelihoodMode(spec.eval_mode),
-        )
-        if spec.skip_calibration:
-            calibration = SimpleNamespace(expected_calibration_error=math.nan)
-        else:
-            calibration = calibration_curve(
-                calibration_test,
-                posterior.mean,
-                posterior_std=posterior.std,
-                posterior_samples=spec.posterior_samples,
-                seed=spec.seed + 7,
-                feature_names=feature_names,
-                num_bins=spec.calibration_bins,
-                mode=LikelihoodMode(spec.calibration_mode),
-            )
-    else:
-        predictive = mean_predictive
-        calibration = mean_calibration
     posterior_error = tuple(
         estimate - truth
         for estimate, truth in zip(posterior.mean, true_theta)
@@ -608,17 +443,13 @@ def _run_validation_case(
         posterior.mean,
         posterior.std,
     )
-    row = {
+    return {
         "feature_set": spec.feature_set,
         "profile": spec.profile,
         "seed": spec.seed,
         "theta_scale": spec.theta_scale,
         "split_unit": spec.split_unit,
-        "train_mode": spec.train_mode,
-        "eval_mode": spec.eval_mode,
-        "calibration_mode": spec.calibration_mode,
         "prior_std": spec.prior_std,
-        "posterior_samples": spec.posterior_samples,
         "feature_count": len(feature_names),
         "feature_names": _json_cell(feature_names),
         "theta_true": _json_cell(true_theta),
@@ -629,7 +460,6 @@ def _run_validation_case(
         "observations": len(observations),
         "train_observations": len(train),
         "test_observations": len(test),
-        "calibration_observations": len(calibration_test),
         "theta_l2_error": _l2_norm(posterior_error),
         "heldout_posterior_log_likelihood": predictive.posterior_log_likelihood,
         "heldout_baseline_log_likelihood": predictive.baseline_log_likelihood,
@@ -643,43 +473,11 @@ def _run_validation_case(
             predictive.posterior_mean_log_probability
             - predictive.baseline_mean_log_probability
         ),
-        "calibration_ece": calibration.expected_calibration_error,
-        "mean_theta_heldout_log_likelihood": mean_predictive.posterior_log_likelihood,
-        "mean_theta_heldout_loglik_delta": (
-            mean_predictive.posterior_log_likelihood
-            - mean_predictive.baseline_log_likelihood
-        ),
-        "mean_theta_heldout_mean_logp": mean_predictive.posterior_mean_log_probability,
-        "mean_theta_heldout_mean_logp_delta": (
-            mean_predictive.posterior_mean_log_probability
-            - mean_predictive.baseline_mean_log_probability
-        ),
-        "mean_theta_calibration_ece": mean_calibration.expected_calibration_error,
-        "posterior_predictive_heldout_log_likelihood": predictive.posterior_log_likelihood,
-        "posterior_predictive_heldout_loglik_delta": (
-            predictive.posterior_log_likelihood
-            - predictive.baseline_log_likelihood
-        ),
-        "posterior_predictive_heldout_mean_logp": predictive.posterior_mean_log_probability,
-        "posterior_predictive_heldout_mean_logp_delta": (
-            predictive.posterior_mean_log_probability
-            - predictive.baseline_mean_log_probability
-        ),
-        "posterior_predictive_calibration_ece": calibration.expected_calibration_error,
         "initial_elbo": posterior.elbo_history[0],
         "final_elbo": posterior.elbo_history[-1],
+        "best_elbo": posterior.best_elbo,
+        "best_step": posterior.best_step,
     }
-    if not spec.skip_importance_reference:
-        reference = importance_sampling_reference(
-            train[: spec.reference_observations],
-            feature_names=feature_names,
-            num_samples=spec.importance_samples,
-            prior_std=spec.prior_std,
-            seed=spec.seed + 5,
-            mode=LikelihoodMode(spec.train_mode),
-        )
-        row["importance_ess"] = reference.effective_sample_size
-    return row
 
 
 def _write_outputs(
@@ -705,20 +503,11 @@ def _write_outputs(
             "max_test_observations": args.max_test_observations,
             "split_unit": args.split_unit,
             "theta_scale": args.theta_scale,
-            "train_mode": args.train_mode,
-            "eval_mode": args.eval_mode,
-            "calibration_mode": args.calibration_mode,
+            "training_likelihood": "sequential",
             "vi_steps": args.vi_steps,
             "learning_rate": args.learning_rate,
             "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
-            "posterior_samples": args.posterior_samples,
-            "importance_samples": args.importance_samples,
-            "reference_observations": args.reference_observations,
-            "skip_importance_reference": args.skip_importance_reference,
-            "calibration_bins": args.calibration_bins,
-            "skip_calibration": args.skip_calibration,
-            "calibration_observations": args.calibration_observations,
             "jobs": args.jobs,
         },
         "runs": rows,
@@ -728,13 +517,8 @@ def _write_outputs(
         json.dumps(_json_ready(payload), indent=2) + "\n",
         encoding="utf-8",
     )
-    include_importance_reference = not args.skip_importance_reference
-    _write_csv(runs_csv_path, rows, _run_fieldnames(include_importance_reference))
-    _write_csv(
-        summary_csv_path,
-        summary,
-        _summary_fieldnames(include_importance_reference),
-    )
+    _write_csv(runs_csv_path, rows, RUN_FIELDNAMES)
+    _write_csv(summary_csv_path, summary, _summary_fieldnames())
     return {
         "json": json_path,
         "runs_csv": runs_csv_path,
@@ -774,61 +558,29 @@ def _csv_row(row: dict[str, Any], fieldnames: tuple[str, ...]) -> dict[str, Any]
     return {field: row.get(field) for field in fieldnames}
 
 
-def _run_fieldnames(include_importance_reference: bool) -> tuple[str, ...]:
-    if not include_importance_reference:
-        return RUN_FIELDNAMES
-    insertion_index = RUN_FIELDNAMES.index("initial_elbo")
-    return (
-        RUN_FIELDNAMES[:insertion_index]
-        + REFERENCE_RUN_FIELDNAMES
-        + RUN_FIELDNAMES[insertion_index:]
-    )
-
-
-def _summary_metrics(include_importance_reference: bool) -> tuple[str, ...]:
-    if not include_importance_reference:
-        return SUMMARY_METRICS
-    insertion_index = SUMMARY_METRICS.index("final_elbo")
-    return (
-        SUMMARY_METRICS[:insertion_index]
-        + REFERENCE_SUMMARY_METRICS
-        + SUMMARY_METRICS[insertion_index:]
-    )
-
-
-def _summary_fieldnames(include_importance_reference: bool) -> tuple[str, ...]:
+def _summary_fieldnames() -> tuple[str, ...]:
     fields = ["feature_set", "profile", "runs", "feature_count"]
-    for metric in _summary_metrics(include_importance_reference):
+    for metric in SUMMARY_METRICS:
         fields.append(f"{metric}_mean")
         fields.append(f"{metric}_std")
     return tuple(fields)
 
 
 def _print_summary(summary: list[dict[str, Any]]) -> None:
-    include_importance_reference = any("importance_ess_mean" in row for row in summary)
     print("Validation comparison")
-    header = (
+    print(
         f"{'feature_set':<12} {'profile':<14} {'runs':>4} "
-        f"{'theta_l2':>9} {'pp_delta':>10} {'mean_delta':>11} "
-        f"{'pp_ece':>8} {'mean_ece':>9}"
+        f"{'theta_l2':>9} {'loglik_delta':>13} {'mean_logp_delta':>15}"
     )
-    if include_importance_reference:
-        header += f" {'ess':>8}"
-    print(header)
     for row in summary:
-        line = (
+        print(
             f"{row['feature_set']:<12} "
             f"{row['profile']:<14} "
             f"{row['runs']:>4} "
             f"{row['theta_l2_error_mean']:>9.3f} "
-            f"{row['posterior_predictive_heldout_loglik_delta_mean']:>10.3f} "
-            f"{row['mean_theta_heldout_loglik_delta_mean']:>11.3f} "
-            f"{row['posterior_predictive_calibration_ece_mean']:>8.3f} "
-            f"{row['mean_theta_calibration_ece_mean']:>9.3f}"
+            f"{row['heldout_loglik_delta_mean']:>13.3f} "
+            f"{row['heldout_mean_logp_delta_mean']:>15.3f}"
         )
-        if include_importance_reference:
-            line += f" {row['importance_ess_mean']:>8.1f}"
-        print(line)
 
 
 def _print_progress(message: str) -> None:

@@ -9,7 +9,7 @@ use the posterior over `theta` to predict future opponent actions.
 The goal is not to build a complete Briscola-playing agent. The goal is to
 isolate and validate the inference problem: hidden opponent style, hidden
 opponent hand, partial observations, synthetic-data recovery, and predictive
-calibration.
+performance.
 
 ## Current Status
 
@@ -21,18 +21,18 @@ Implemented:
 - Synthetic softmax opponent models parameterized by `theta`.
 - Interpretable move features `phi(card, hand, state)`.
 - Synthetic episode collection from simulated games.
-- Uniform local beliefs over compatible hidden opponent hands.
 - Marginal likelihood over hidden hands, with conditional and absolute modes.
-- Mean-field Gaussian variational inference for `theta`.
+- Sequential hand-filter likelihood over opponent hands.
+- Mean-field Gaussian variational inference for `theta` with the sequential
+  likelihood as the only training objective.
 - Synthetic validation workflow with theta recovery, held-out prediction,
-  calibration, and importance-sampling reference diagnostics.
+  and baseline comparison.
 - Multi-run comparison script for feature sets, profiles, and seeds.
 - Unit tests for simulator, opponents, inference, VI, validation, and scripts.
 
 Not implemented yet:
 
-- Sequential hidden-hand filtering over draw order.
-- MCMC/NUTS posterior reference.
+- Exact sequential filtering over the full residual-deck state space.
 - Hierarchical priors across opponents.
 - Amortized or online inference.
 - Decision-value evaluation with a best-response player.
@@ -42,7 +42,7 @@ Not implemented yet:
 At each observed opponent move, the opponent has a private hand `H_t`, the
 public information is `I_t`, and the observed card is `c_t`.
 
-The local action model is a softmax:
+The action model is a softmax:
 
 ```text
 p(c_t = x | H_t, I_t, theta)
@@ -62,9 +62,10 @@ The inference likelihood marginalizes the hidden hand:
 p(c_t | I_t, theta) = sum_H b_t(H) p(c_t | H, I_t, theta)
 ```
 
-The current baseline assumes a uniform local belief over compatible hands. This
-is an explicit approximation: it ignores full sequential filtering over draw
-order, but keeps the likelihood tractable and easy to validate.
+The sequential model keeps a belief over hidden opponent hands across the moves
+of the same game. This makes the likelihood depend on previous observed actions
+instead of treating each move as independent. The current implementation filters
+over hands, not over the full residual stock order.
 
 ## Repository Layout
 
@@ -79,12 +80,12 @@ opponents/
 
 experiments/
   episode_collection.py Synthetic game loop and observation collection.
-  validation.py         Recovery, prediction, calibration, reference methods.
+  validation.py         Recovery, prediction, and validation helpers.
 
 inference/
   beliefs.py            Compatible hidden-hand enumeration.
   likelihood.py         Marginal card probabilities and log likelihood.
-  vi.py                 Mean-field Gaussian variational inference.
+  vi.py                 Sequential likelihood and variational inference.
 
 scripts/
   run_validation.py     Single synthetic validation run.
@@ -96,7 +97,22 @@ tests/
 
 ## Feature Sets
 
-The core feature set is:
+The default validation feature set is `style`:
+
+```text
+is_carico
+is_low_trump
+is_high_trump
+is_low_points
+wins_current_trick
+```
+
+This set replaces one broad point-value feature with five small tactical
+signals: high-value cards, low trumps, high trumps, zero-point cards, and
+whether the move wins the current trick. It is meant to make theta recovery more
+interpretable and less dominated by a single large coefficient.
+
+The original `core` feature set is still available:
 
 ```text
 is_trump
@@ -131,11 +147,11 @@ python3 -m unittest
 ```bash
 python3 scripts/run_validation.py \
   --num-games 100 \
+  --feature-set style \
   --theta-scale 1.0 \
   --split-unit game \
   --vi-steps 300 \
   --elbo-samples 2 \
-  --importance-samples 200 \
   --progress-interval 50 \
   --output artifacts/validation_report.json
 ```
@@ -145,9 +161,7 @@ The report includes:
 - posterior mean and standard deviation for each theta component;
 - theta recovery error;
 - ELBO history and best ELBO step;
-- held-out predictive log likelihood versus baseline;
-- calibration curve and ECE;
-- importance-sampling effective sample size.
+- sequential held-out predictive log likelihood versus baseline;
 
 Useful validation flags:
 
@@ -158,41 +172,37 @@ Useful validation flags:
   `game` keeps all moves from the same game in the same partition, which avoids
   leakage between train and held-out data. `observation` splits individual
   moves and is useful for small smoke tests.
-- `--train-mode`, `--eval-mode`, and `--calibration-mode`: choose whether each
-  stage uses the conditional or absolute marginal likelihood. The script
-  defaults use `absolute` so reported held-out log probabilities are normalized
-  probabilities over observable cards; `conditional` remains available because
-  it differs only by theta-independent constants under the uniform local belief.
 - `--prior-std`: controls the width of the zero-mean Gaussian prior over theta.
   Larger values shrink fitted theta less aggressively toward zero.
-- `--posterior-samples`: held-out prediction and calibration average
-  probabilities over samples from `q(theta)`. Use `0` to evaluate only the
-  posterior mean.
 
 ## Run A Comparison Grid
 
 ```bash
 python3 scripts/run_comparison.py \
-  --feature-sets core compact trump_count extended \
+  --feature-sets style core compact trump_count extended \
   --profiles aggressive conservative greedy_points \
   --seeds 0 1 2 \
   --num-games 20 \
   --theta-scale 1.0 \
   --split-unit game \
   --vi-steps 300 \
-  --importance-samples 200 \
   --jobs 4
 ```
 
 By default, outputs are written under `artifacts/comparison/`. Comparison runs
 can execute independent configurations in parallel with `--jobs`. Each fitted
-posterior is evaluated both at `posterior.mean` and, when `--posterior-samples`
-is positive, with posterior-predictive averaging.
+posterior is evaluated on held-out games with the same sequential likelihood
+used during training.
 
 For faster exploratory comparisons, use `--max-train-observations`,
-`--max-test-observations`, and either `--skip-calibration` or
-`--calibration-observations`. The run CSV is written incrementally as each
-configuration finishes, so progress is visible before the full grid completes.
+`--max-test-observations`, and fewer seeds. The run CSV is written
+incrementally as each configuration finishes, so progress is visible before the
+full grid completes.
+
+`run_validation.py` executes one complete experiment and prints a detailed
+report for that run. `run_comparison.py` repeats the same validation pipeline
+over several feature sets, profiles, and seeds, then writes aggregate CSV/JSON
+tables so different modelling choices can be compared.
 
 ## Development Notes
 

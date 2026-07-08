@@ -12,6 +12,7 @@ from opponents.features import (
     COMPACT_FEATURE_NAMES,
     EXTENDED_FEATURE_NAMES,
     FEATURE_NAMES,
+    STYLE_FEATURE_NAMES,
     TRUMP_COUNT_FEATURE_NAMES,
     card_features,
 )
@@ -54,6 +55,32 @@ GREEDY_POINTS_THETA = theta_from_weights(
     points_normalized=3.0,
     wins_current_trick=0.4,
     lowest_card_in_suit=-0.2,
+)
+
+STYLE_RANDOM_THETA = zero_theta(STYLE_FEATURE_NAMES)
+STYLE_AGGRESSIVE_THETA = theta_from_weights(
+    STYLE_FEATURE_NAMES,
+    is_carico=0.8,
+    is_low_trump=0.2,
+    is_high_trump=1.3,
+    is_low_points=-0.7,
+    wins_current_trick=1.8,
+)
+STYLE_CONSERVATIVE_THETA = theta_from_weights(
+    STYLE_FEATURE_NAMES,
+    is_carico=-0.8,
+    is_low_trump=-0.2,
+    is_high_trump=-1.4,
+    is_low_points=1.1,
+    wins_current_trick=0.4,
+)
+STYLE_GREEDY_POINTS_THETA = theta_from_weights(
+    STYLE_FEATURE_NAMES,
+    is_carico=1.8,
+    is_low_trump=-0.1,
+    is_high_trump=0.6,
+    is_low_points=-1.0,
+    wins_current_trick=0.9,
 )
 
 TRUMP_COUNT_RANDOM_THETA = zero_theta(TRUMP_COUNT_FEATURE_NAMES)

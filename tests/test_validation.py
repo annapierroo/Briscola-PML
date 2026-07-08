@@ -7,7 +7,6 @@ from experiments import (
     collect_matched_model_observations,
     collect_observations,
     heldout_predictive_evaluation,
-    importance_sampling_reference,
     train_test_split,
 )
 from inference import LikelihoodMode, marginal_card_probability
@@ -39,7 +38,6 @@ class ValidationTest(unittest.TestCase):
             posterior_std=tuple(0.0 for _ in GREEDY_POINTS_THETA),
             posterior_samples=3,
             baseline_theta=RANDOM_THETA,
-            mode=LikelihoodMode.CONDITIONAL,
             seed=9,
         )
         calibration = calibration_curve(
@@ -50,15 +48,13 @@ class ValidationTest(unittest.TestCase):
             num_bins=5,
             seed=10,
         )
-        reference = importance_sampling_reference(train[:2], num_samples=8, seed=4)
 
         self.assertEqual(len(train) + len(test), len(observations))
         self.assertTrue(math.isfinite(predictive.posterior_log_likelihood))
         self.assertTrue(math.isfinite(posterior_predictive.posterior_log_likelihood))
-        self.assertEqual(posterior_predictive.mode, LikelihoodMode.CONDITIONAL.value)
+        self.assertEqual(posterior_predictive.mode, "sequential")
         self.assertEqual(posterior_predictive.posterior_samples, 3)
         self.assertEqual(len(calibration.bins), 5)
-        self.assertGreater(reference.effective_sample_size, 0.0)
 
     def test_posterior_predictive_requires_std_when_sampling(self) -> None:
         observations = collect_observations(

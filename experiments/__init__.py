@@ -10,13 +10,11 @@ from experiments.episode_collection import (
 from experiments.validation import (
     CalibrationBin,
     CalibrationResult,
-    ImportanceSamplingResult,
     PredictiveResult,
     RecoveryResult,
     calibration_curve,
     collect_matched_model_observations,
     heldout_predictive_evaluation,
-    importance_sampling_reference,
     run_recovery_experiment,
     train_test_split,
 )
@@ -24,7 +22,6 @@ from experiments.validation import (
 __all__ = [
     "CalibrationBin",
     "CalibrationResult",
-    "ImportanceSamplingResult",
     "MoveChooser",
     "OpponentMoveObservation",
     "PredictiveResult",
@@ -34,7 +31,6 @@ __all__ = [
     "collect_matched_model_observations",
     "collect_observations",
     "heldout_predictive_evaluation",
-    "importance_sampling_reference",
     "play_synthetic_game",
     "run_recovery_experiment",
     "train_test_split",

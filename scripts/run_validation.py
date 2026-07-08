@@ -1,12 +1,12 @@
-"""Run a small synthetic validation experiment"""
+"""Run one synthetic validation experiment."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import math
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -15,14 +15,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments import (  # noqa: E402
-    calibration_curve,
-    collect_matched_model_observations,
     collect_observations,
     heldout_predictive_evaluation,
-    importance_sampling_reference,
     train_test_split,
 )
-from inference import LikelihoodMode, fit_variational_posterior  # noqa: E402
+from inference import fit_variational_posterior  # noqa: E402
 from opponents import (  # noqa: E402
     AGGRESSIVE_THETA,
     COMPACT_AGGRESSIVE_THETA,
@@ -37,6 +34,10 @@ from opponents import (  # noqa: E402
     EXTENDED_GREEDY_POINTS_THETA,
     GREEDY_POINTS_THETA,
     RandomOpponent,
+    STYLE_AGGRESSIVE_THETA,
+    STYLE_CONSERVATIVE_THETA,
+    STYLE_FEATURE_NAMES,
+    STYLE_GREEDY_POINTS_THETA,
     ThetaSoftmaxOpponent,
     TRUMP_COUNT_AGGRESSIVE_THETA,
     TRUMP_COUNT_CONSERVATIVE_THETA,
@@ -48,6 +49,7 @@ FEATURE_SETS = {
     "compact": COMPACT_FEATURE_NAMES,
     "core": CORE_FEATURE_NAMES,
     "extended": EXTENDED_FEATURE_NAMES,
+    "style": STYLE_FEATURE_NAMES,
     "trump_count": TRUMP_COUNT_FEATURE_NAMES,
 }
 
@@ -66,6 +68,11 @@ THETA_PROFILES = {
         "aggressive": EXTENDED_AGGRESSIVE_THETA,
         "conservative": EXTENDED_CONSERVATIVE_THETA,
         "greedy_points": EXTENDED_GREEDY_POINTS_THETA,
+    },
+    "style": {
+        "aggressive": STYLE_AGGRESSIVE_THETA,
+        "conservative": STYLE_CONSERVATIVE_THETA,
+        "greedy_points": STYLE_GREEDY_POINTS_THETA,
     },
     "trump_count": {
         "aggressive": TRUMP_COUNT_AGGRESSIVE_THETA,
@@ -88,7 +95,6 @@ def main() -> None:
         f"(feature_set={args.feature_set}, profile={args.profile}, "
         f"data_source={args.data_source}, games={args.num_games}, "
         f"theta_scale={args.theta_scale}, split_unit={args.split_unit}, "
-        f"train_mode={args.train_mode}, eval_mode={args.eval_mode}, "
         f"seed={args.seed})"
     )
     _print_progress("collecting observations...")
@@ -109,7 +115,6 @@ def main() -> None:
     posterior = fit_variational_posterior(
         train,
         feature_names=feature_names,
-        mode=LikelihoodMode(args.train_mode),
         num_steps=args.vi_steps,
         learning_rate=args.learning_rate,
         num_elbo_samples=args.elbo_samples,
@@ -122,34 +127,7 @@ def main() -> None:
     predictive = heldout_predictive_evaluation(
         test,
         posterior_mean=posterior.mean,
-        posterior_std=posterior.std,
-        posterior_samples=args.posterior_samples,
-        seed=args.seed + 6,
         feature_names=feature_names,
-        mode=LikelihoodMode(args.eval_mode),
-    )
-    _print_progress("building calibration curve...")
-    calibration = calibration_curve(
-        test,
-        posterior.mean,
-        posterior_std=posterior.std,
-        posterior_samples=args.posterior_samples,
-        seed=args.seed + 7,
-        feature_names=feature_names,
-        num_bins=args.calibration_bins,
-        mode=LikelihoodMode(args.calibration_mode),
-    )
-    _print_progress(
-        f"running importance-sampling reference "
-        f"({args.importance_samples} samples)..."
-    )
-    reference = importance_sampling_reference(
-        train[: args.reference_observations],
-        feature_names=feature_names,
-        num_samples=args.importance_samples,
-        prior_std=args.prior_std,
-        seed=args.seed + 5,
-        mode=LikelihoodMode(args.train_mode),
     )
 
     _print_progress("writing report...")
@@ -162,8 +140,6 @@ def main() -> None:
         test_count=len(test),
         posterior=posterior,
         predictive=predictive,
-        calibration=calibration,
-        reference=reference,
     )
     _write_report(report, args.output)
     _print_progress("done")
@@ -177,7 +153,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--feature-set",
         choices=sorted(FEATURE_SETS),
-        default="core",
+        default="style",
         help="feature set used by the synthetic theta and inference model",
     )
     parser.add_argument(
@@ -188,9 +164,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data-source",
-        choices=("simulator", "matched"),
+        choices=("simulator",),
         default="simulator",
-        help="whether actions come from the simulator hand or the matched local belief",
+        help="source of synthetic sequential games",
     )
     parser.add_argument(
         "--num-games",
@@ -217,24 +193,6 @@ def _parse_args() -> argparse.Namespace:
         help="multiplier applied to the synthetic theta before generating data",
     )
     parser.add_argument(
-        "--train-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used while fitting theta",
-    )
-    parser.add_argument(
-        "--eval-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used for held-out prediction",
-    )
-    parser.add_argument(
-        "--calibration-mode",
-        choices=tuple(mode.value for mode in LikelihoodMode),
-        default=LikelihoodMode.ABSOLUTE.value,
-        help="likelihood mode used for calibration bins",
-    )
-    parser.add_argument(
         "--vi-steps",
         type=int,
         default=300,
@@ -257,30 +215,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Monte Carlo samples from q(theta) per ELBO step",
-    )
-    parser.add_argument(
-        "--posterior-samples",
-        type=int,
-        default=16,
-        help="posterior samples for held-out/calibration prediction; 0 uses posterior mean",
-    )
-    parser.add_argument(
-        "--importance-samples",
-        type=int,
-        default=200,
-        help="prior samples for the importance-sampling reference",
-    )
-    parser.add_argument(
-        "--reference-observations",
-        type=int,
-        default=8,
-        help="training observations used by the importance-sampling reference",
-    )
-    parser.add_argument(
-        "--calibration-bins",
-        type=int,
-        default=5,
-        help="number of bins for the calibration curve",
     )
     parser.add_argument(
         "--seed",
@@ -320,14 +254,6 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
-    if args.posterior_samples < 0:
-        raise ValueError("posterior_samples cannot be negative")
-    if args.importance_samples <= 0:
-        raise ValueError("importance_samples must be positive")
-    if args.reference_observations <= 0:
-        raise ValueError("reference_observations must be positive")
-    if args.calibration_bins <= 0:
-        raise ValueError("calibration_bins must be positive")
     if args.progress_interval <= 0:
         raise ValueError("progress_interval must be positive")
 
@@ -337,17 +263,6 @@ def _collect_validation_observations(
     true_theta: tuple[float, ...],
     feature_names: tuple[str, ...],
 ) -> tuple:
-    if args.data_source == "matched":
-        return collect_matched_model_observations(
-            true_theta,
-            feature_names=feature_names,
-            num_games=args.num_games,
-            seed=args.seed,
-            observer_player=0,
-            observed_player=1,
-            theta_name=f"{args.feature_set}_{args.profile}_matched",
-        )
-
     return collect_observations(
         observed_model=ThetaSoftmaxOpponent(
             true_theta,
@@ -373,8 +288,6 @@ def _build_report(
     test_count: int,
     posterior: Any,
     predictive: Any,
-    calibration: Any,
-    reference: Any,
 ) -> dict[str, Any]:
     posterior_error = tuple(
         estimate - truth
@@ -390,17 +303,11 @@ def _build_report(
             "train_fraction": args.train_fraction,
             "split_unit": args.split_unit,
             "theta_scale": args.theta_scale,
-            "train_mode": args.train_mode,
-            "eval_mode": args.eval_mode,
-            "calibration_mode": args.calibration_mode,
+            "training_likelihood": "sequential",
             "vi_steps": args.vi_steps,
             "learning_rate": args.learning_rate,
             "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
-            "posterior_samples": args.posterior_samples,
-            "importance_samples": args.importance_samples,
-            "reference_observations": args.reference_observations,
-            "calibration_bins": args.calibration_bins,
             "seed": args.seed,
         },
         "data": {
@@ -423,8 +330,6 @@ def _build_report(
             "elbo_history": posterior.elbo_history,
         },
         "heldout": asdict(predictive),
-        "calibration": asdict(calibration),
-        "importance_sampling_reference": asdict(reference),
     }
 
 
@@ -450,8 +355,6 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     theta = report["theta"]
     vi = report["vi"]
     heldout = report["heldout"]
-    calibration = report["calibration"]
-    reference = report["importance_sampling_reference"]
 
     print("Synthetic validation")
     print(f"feature set: {config['feature_set']}")
@@ -459,10 +362,8 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     print(f"data source: {config['data_source']}")
     print(f"theta scale: {config['theta_scale']}")
     print(f"split unit: {config['split_unit']}")
-    print(f"train/eval mode: {config['train_mode']} / {config['eval_mode']}")
-    print(f"calibration mode: {config['calibration_mode']}")
+    print("training likelihood: sequential")
     print(f"prior std: {config['prior_std']}")
-    print(f"posterior samples: {config['posterior_samples']}")
     print(
         f"observations: {data['observations']} total, "
         f"{data['train_observations']} train, "
@@ -488,16 +389,6 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     print(f"mean logp posterior:       {heldout['posterior_mean_log_probability']:.3f}")
     print(f"mean logp baseline:        {heldout['baseline_mean_log_probability']:.3f}")
     print()
-    print(f"calibration ECE: {calibration['expected_calibration_error']:.3f}")
-    for bucket in calibration["bins"]:
-        print(
-            f"bin [{bucket['lower']:.1f}, {bucket['upper']:.1f}): "
-            f"n={bucket['count']}, "
-            f"p={bucket['mean_probability']:.3f}, "
-            f"freq={bucket['empirical_frequency']:.3f}"
-        )
-    print()
-    print(f"importance sampling ESS: {reference['effective_sample_size']:.1f}")
     print(f"report written to: {output}")
 
 

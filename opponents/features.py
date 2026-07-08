@@ -21,6 +21,14 @@ CORE_FEATURE_NAMES: tuple[str, ...] = (
     "lowest_card_in_suit",
 )
 
+STYLE_FEATURE_NAMES: tuple[str, ...] = (
+    "is_carico",
+    "is_low_trump",
+    "is_high_trump",
+    "is_low_points",
+    "wins_current_trick",
+)
+
 TRUMP_COUNT_FEATURE_NAMES: tuple[str, ...] = (
     "trumps_remaining_after",
     "points_normalized",
@@ -98,6 +106,10 @@ def feature_dict(
     is_ace = float(card.rank == Rank.ACE)
     is_three = float(card.rank == Rank.THREE)
     is_load = float(card.rank in (Rank.ACE, Rank.THREE))
+    is_carico = is_load
+    is_low_trump = float(card.suit == public_state.trump_suit and card.points == 0)
+    is_high_trump = float(card.suit == public_state.trump_suit and card.strength >= 7)
+    is_low_points = float(card.points == 0)
     is_smooth = float(card.points == 0 and card.suit != public_state.trump_suit)
     current_trick_points_normalized = (
         sum(played.card.points for played in public_state.current_trick) / MAX_CARD_POINTS
@@ -127,6 +139,10 @@ def feature_dict(
         "is_ace": is_ace,
         "is_three": is_three,
         "is_load": is_load,
+        "is_carico": is_carico,
+        "is_low_trump": is_low_trump,
+        "is_high_trump": is_high_trump,
+        "is_low_points": is_low_points,
         "is_smooth": is_smooth,
         "current_trick_points_normalized": current_trick_points_normalized,
         "score_difference_normalized": score_difference_normalized,

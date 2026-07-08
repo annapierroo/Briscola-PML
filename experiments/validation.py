@@ -1,11 +1,11 @@
-"""Validation experiments for synthetic opponent modelling"""
+"""Validation experiments for synthetic opponent modelling."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 import math
 import random
-from collections.abc import Sequence
 
 from experiments.episode_collection import OpponentMoveObservation, collect_observations
 from game import Card
@@ -16,14 +16,14 @@ from inference import (
     known_opponent_cards,
     local_card_probability,
     marginal_card_probability,
-    marginal_log_likelihood,
+    sequential_log_likelihood,
 )
 from opponents import FEATURE_NAMES, RandomOpponent, ThetaSoftmaxOpponent, zero_theta
 
 
 @dataclass(frozen=True, slots=True)
 class RecoveryResult:
-    """Theta recovery summary"""
+    """Theta recovery summary."""
 
     true_theta: tuple[float, ...]
     posterior_mean: tuple[float, ...]
@@ -36,32 +36,21 @@ class RecoveryResult:
 
 
 @dataclass(frozen=True, slots=True)
-class ImportanceSamplingResult:
-    """Crude posterior reference from prior samples"""
-
-    posterior_mean: tuple[float, ...]
-    posterior_std: tuple[float, ...]
-    effective_sample_size: float
-    log_normalizer: float
-    num_samples: int
-
-
-@dataclass(frozen=True, slots=True)
 class PredictiveResult:
-    """Held-out log-likelihood comparison"""
+    """Held-out sequential log-likelihood comparison."""
 
     posterior_log_likelihood: float
     baseline_log_likelihood: float
     posterior_mean_log_probability: float
     baseline_mean_log_probability: float
     num_observations: int
-    mode: str
-    posterior_samples: int
+    mode: str = "sequential"
+    posterior_samples: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class CalibrationBin:
-    """One calibration bucket"""
+    """One calibration bucket."""
 
     lower: float
     upper: float
@@ -72,7 +61,7 @@ class CalibrationBin:
 
 @dataclass(frozen=True, slots=True)
 class CalibrationResult:
-    """Calibration curve and ECE"""
+    """Calibration curve and ECE."""
 
     bins: tuple[CalibrationBin, ...]
     expected_calibration_error: float
@@ -89,7 +78,7 @@ def collect_matched_model_observations(
     observed_player: int = 1,
     theta_name: str | None = "matched_model",
 ) -> tuple[OpponentMoveObservation, ...]:
-    """Generate local observations from the same hand belief used by inference"""
+    """Generate local observations from the same hand belief used by inference."""
 
     feature_names = tuple(feature_names)
     if len(theta) != len(feature_names):
@@ -127,7 +116,7 @@ def run_recovery_experiment(
     learning_rate: float = 0.03,
     num_elbo_samples: int = 1,
 ) -> RecoveryResult:
-    """Generate synthetic games and fit the VI posterior"""
+    """Generate synthetic games and fit the VI posterior."""
 
     feature_names = tuple(feature_names)
     true_theta = tuple(float(value) for value in true_theta)
@@ -148,7 +137,6 @@ def run_recovery_experiment(
     posterior = fit_variational_posterior(
         observations,
         feature_names=feature_names,
-        mode=LikelihoodMode.CONDITIONAL,
         num_steps=vi_steps,
         learning_rate=learning_rate,
         num_elbo_samples=num_elbo_samples,
@@ -202,7 +190,7 @@ def _train_test_split_by_game(
     *,
     train_fraction: float,
 ) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
-    # Keep all moves from each game in the same partition.
+    # Keep all moves from one game in the same partition.
     game_ids = tuple(dict.fromkeys(observation.game_id for observation in observations))
     if len(game_ids) < 2:
         raise ValueError("game split requires observations from at least two games")
@@ -222,60 +210,6 @@ def _train_test_split_by_game(
     return train, test
 
 
-def importance_sampling_reference(
-    observations: Sequence[OpponentMoveObservation],
-    *,
-    feature_names: Sequence[str] = FEATURE_NAMES,
-    num_samples: int = 500,
-    prior_std: float = 1.0,
-    seed: int = 0,
-    mode: LikelihoodMode = LikelihoodMode.CONDITIONAL,
-) -> ImportanceSamplingResult:
-    """Approximate posterior moments by sampling theta from the prior"""
-
-    if num_samples <= 0:
-        raise ValueError("num_samples must be positive")
-    if prior_std <= 0:
-        raise ValueError("prior_std must be positive")
-
-    feature_names = tuple(feature_names)
-    rng = random.Random(seed)
-    theta_samples = tuple(
-        tuple(rng.gauss(0.0, prior_std) for _ in feature_names)
-        for _ in range(num_samples)
-    )
-    log_weights = tuple(
-        marginal_log_likelihood(
-            observations,
-            theta,
-            feature_names=feature_names,
-            mode=mode,
-        )
-        for theta in theta_samples
-    )
-    normalized_weights, log_normalizer = _normalize_log_weights(log_weights)
-    mean = tuple(
-        sum(weight * theta[dim] for weight, theta in zip(normalized_weights, theta_samples))
-        for dim in range(len(feature_names))
-    )
-    variances = tuple(
-        sum(
-            weight * (theta[dim] - mean[dim]) ** 2
-            for weight, theta in zip(normalized_weights, theta_samples)
-        )
-        for dim in range(len(feature_names))
-    )
-    ess = 1.0 / sum(weight * weight for weight in normalized_weights)
-
-    return ImportanceSamplingResult(
-        posterior_mean=mean,
-        posterior_std=tuple(math.sqrt(max(variance, 0.0)) for variance in variances),
-        effective_sample_size=ess,
-        log_normalizer=log_normalizer,
-        num_samples=num_samples,
-    )
-
-
 def heldout_predictive_evaluation(
     observations: Sequence[OpponentMoveObservation],
     posterior_mean: Sequence[float],
@@ -285,40 +219,42 @@ def heldout_predictive_evaluation(
     seed: int = 0,
     baseline_theta: Sequence[float] | None = None,
     feature_names: Sequence[str] = FEATURE_NAMES,
-    mode: LikelihoodMode = LikelihoodMode.ABSOLUTE,
 ) -> PredictiveResult:
-    """Compare posterior predictive probabilities against a baseline."""
+    """Compare the VI posterior against a zero-theta sequential baseline."""
 
     feature_names = tuple(feature_names)
-    mode = LikelihoodMode(mode)
     if baseline_theta is None:
         baseline_theta = zero_theta(feature_names)
+
     theta_samples = _posterior_theta_samples(
         posterior_mean,
         posterior_std,
         posterior_samples=posterior_samples,
         seed=seed,
     )
-    posterior_log_likelihood = _posterior_predictive_log_likelihood(
+    posterior_log_likelihood = _posterior_sequential_log_likelihood(
         observations,
         theta_samples,
         feature_names=feature_names,
-        mode=mode,
     )
-    baseline_log_likelihood = marginal_log_likelihood(
+    baseline_log_likelihood = sequential_log_likelihood(
         observations,
         baseline_theta,
         feature_names=feature_names,
-        mode=mode,
     )
     count = len(observations)
     return PredictiveResult(
         posterior_log_likelihood=posterior_log_likelihood,
         baseline_log_likelihood=baseline_log_likelihood,
-        posterior_mean_log_probability=_safe_mean_log_probability(posterior_log_likelihood, count),
-        baseline_mean_log_probability=_safe_mean_log_probability(baseline_log_likelihood, count),
+        posterior_mean_log_probability=_safe_mean_log_probability(
+            posterior_log_likelihood,
+            count,
+        ),
+        baseline_mean_log_probability=_safe_mean_log_probability(
+            baseline_log_likelihood,
+            count,
+        ),
         num_observations=count,
-        mode=mode.value,
         posterior_samples=max(0, posterior_samples),
     )
 
@@ -334,7 +270,7 @@ def calibration_curve(
     num_bins: int = 10,
     mode: LikelihoodMode = LikelihoodMode.ABSOLUTE,
 ) -> CalibrationResult:
-    """Bin predicted probabilities and empirical frequencies."""
+    """Bin local marginal probabilities and empirical frequencies."""
 
     if num_bins <= 0:
         raise ValueError("num_bins must be positive")
@@ -349,7 +285,7 @@ def calibration_curve(
     )
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(num_bins)]
     for observation in observations:
-        # Calibration is computed over candidate-card events.
+        # Calibration is a local diagnostic over candidate-card events.
         for candidate in compatible_unknown_cards(
             observation.public_state,
             observation.observer_hand,
@@ -419,27 +355,23 @@ def _posterior_theta_samples(
     )
 
 
-def _posterior_predictive_log_likelihood(
+def _posterior_sequential_log_likelihood(
     observations: Sequence[OpponentMoveObservation],
     theta_samples: Sequence[Sequence[float]],
     *,
     feature_names: Sequence[str],
-    mode: LikelihoodMode,
 ) -> float:
-    total = 0.0
-    for observation in observations:
-        probability = _posterior_predictive_card_probability(
-            observation.chosen_card,
-            observation,
-            theta_samples,
-            observed_player=observation.player,
+    if not theta_samples:
+        raise ValueError("theta_samples cannot be empty")
+    log_likelihoods = tuple(
+        sequential_log_likelihood(
+            observations,
+            theta,
             feature_names=feature_names,
-            mode=mode,
         )
-        if probability <= 0.0:
-            return -math.inf
-        total += math.log(probability)
-    return total
+        for theta in theta_samples
+    )
+    return _logmeanexp(log_likelihoods)
 
 
 def _posterior_predictive_card_probability(
@@ -574,15 +506,14 @@ def _sample_card_from_hand(
     return hand[-1]
 
 
-def _normalize_log_weights(log_weights: Sequence[float]) -> tuple[tuple[float, ...], float]:
-    max_log_weight = max(log_weights)
-    if max_log_weight == -math.inf:
-        raise ValueError("all importance weights are zero")
-    raw_weights = tuple(math.exp(value - max_log_weight) for value in log_weights)
-    normalizer = sum(raw_weights)
-    return (
-        tuple(weight / normalizer for weight in raw_weights),
-        max_log_weight + math.log(normalizer) - math.log(len(log_weights)),
+def _logmeanexp(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("values cannot be empty")
+    maximum = max(values)
+    if not math.isfinite(maximum):
+        return maximum
+    return maximum + math.log(
+        sum(math.exp(value - maximum) for value in values) / len(values)
     )
 
 
