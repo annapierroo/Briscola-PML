@@ -47,20 +47,16 @@ class ComparisonScriptTest(unittest.TestCase):
             seed=0,
             data_source="simulator",
             num_games=2,
-            train_fraction=0.75,
             max_train_observations=10,
             max_test_observations=5,
-            split_unit="game",
             theta_scale=1.0,
             vi_steps=1,
-            learning_rate=0.03,
             prior_std=1.0,
             elbo_samples=1,
-            progress_interval=1,
         )
 
         try:
-            row = _run_validation_case(spec, show_vi_progress=False)
+            row = _run_validation_case(spec)
         except ModuleNotFoundError as exc:
             if "PyTorch" not in str(exc):
                 raise

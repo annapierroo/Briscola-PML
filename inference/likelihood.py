@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import Enum
 import math
 import random
 from collections.abc import Sequence
@@ -15,15 +14,6 @@ from inference.beliefs import (
     known_opponent_cards,
 )
 from opponents import FEATURE_NAMES, card_features
-
-
-class LikelihoodMode(str, Enum):
-    """Whether to include the chance that the card is in hand"""
-
-    # Equivalent for fitting theta; the hand-inclusion factor is constant in theta.
-    CONDITIONAL = "conditional"
-    # Used for predictive probabilities and calibration.
-    ABSOLUTE = "absolute"
 
 
 def local_card_probability(
@@ -64,15 +54,13 @@ def marginal_card_probability(
     *,
     observed_player: PlayerId | None = None,
     feature_names: Sequence[str] = FEATURE_NAMES,
-    mode: LikelihoodMode = LikelihoodMode.CONDITIONAL,
     temperature: float = 1.0,
     max_exact_hands: int | None = None,
     mc_samples: int | None = None,
     seed: int | None = None,
 ) -> float:
-    """Marginal probability of the observed card under a uniform hand belief"""
+    """Absolute marginal probability of the observed card under public information."""
 
-    mode = LikelihoodMode(mode)
     _validate_theta(theta, feature_names)
 
     opponent_player = _target_player(public_state, observed_player)
@@ -134,9 +122,6 @@ def marginal_card_probability(
             temperature=temperature,
         )
 
-    if mode == LikelihoodMode.CONDITIONAL:
-        return average_probability
-
     total_count = hand_count(
         len(unknown_cards),
         hand_size,
@@ -144,7 +129,7 @@ def marginal_card_probability(
     )
     if total_count == 0:
         return 0.0
-    # Absolute mode restores P(card in hand | public information).
+    # Restore P(card in hand | public information) for a normalized predictive probability.
     return average_probability * containing_count / total_count
 
 
@@ -153,7 +138,6 @@ def marginal_log_likelihood(
     theta: Sequence[float],
     *,
     feature_names: Sequence[str] = FEATURE_NAMES,
-    mode: LikelihoodMode = LikelihoodMode.CONDITIONAL,
     temperature: float = 1.0,
     max_exact_hands: int | None = None,
     mc_samples: int | None = None,
@@ -170,7 +154,6 @@ def marginal_log_likelihood(
             theta=theta,
             observed_player=observation.player,
             feature_names=feature_names,
-            mode=mode,
             temperature=temperature,
             max_exact_hands=max_exact_hands,
             mc_samples=mc_samples,

@@ -81,6 +81,9 @@ THETA_PROFILES = {
     },
 }
 
+DEFAULT_TRAIN_FRACTION = 0.75
+DEFAULT_LEARNING_RATE = 0.03
+
 
 def main() -> None:
     args = _parse_args()
@@ -94,7 +97,7 @@ def main() -> None:
         "starting validation "
         f"(feature_set={args.feature_set}, profile={args.profile}, "
         f"data_source={args.data_source}, games={args.num_games}, "
-        f"theta_scale={args.theta_scale}, split_unit={args.split_unit}, "
+        f"theta_scale={args.theta_scale}, "
         f"seed={args.seed})"
     )
     _print_progress("collecting observations...")
@@ -103,8 +106,7 @@ def main() -> None:
 
     train, test = train_test_split(
         observations,
-        train_fraction=args.train_fraction,
-        split_unit=args.split_unit,
+        train_fraction=DEFAULT_TRAIN_FRACTION,
     )
     _print_progress(f"split data: {len(train)} train, {len(test)} test")
 
@@ -116,12 +118,10 @@ def main() -> None:
         train,
         feature_names=feature_names,
         num_steps=args.vi_steps,
-        learning_rate=args.learning_rate,
+        learning_rate=DEFAULT_LEARNING_RATE,
         num_elbo_samples=args.elbo_samples,
         prior_std=args.prior_std,
         seed=args.seed + 4,
-        progress_callback=_print_vi_progress,
-        progress_interval=args.progress_interval,
     )
     _print_progress("evaluating held-out predictions...")
     predictive = heldout_predictive_evaluation(
@@ -175,18 +175,6 @@ def _parse_args() -> argparse.Namespace:
         help="number of synthetic games to generate",
     )
     parser.add_argument(
-        "--train-fraction",
-        type=float,
-        default=0.75,
-        help="fraction of observations used for VI",
-    )
-    parser.add_argument(
-        "--split-unit",
-        choices=("game", "observation"),
-        default="game",
-        help="whether train/test split is done by full games or individual observations",
-    )
-    parser.add_argument(
         "--theta-scale",
         type=float,
         default=1.0,
@@ -197,12 +185,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=300,
         help="number of Adam steps for variational inference",
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=0.03,
-        help="Adam learning rate",
     )
     parser.add_argument(
         "--prior-std",
@@ -223,12 +205,6 @@ def _parse_args() -> argparse.Namespace:
         help="base random seed",
     )
     parser.add_argument(
-        "--progress-interval",
-        type=int,
-        default=50,
-        help="VI steps between progress updates",
-    )
-    parser.add_argument(
         "--output",
         type=Path,
         default=ROOT / "artifacts" / "validation_report.json",
@@ -240,22 +216,16 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    if args.num_games <= 0:
-        raise ValueError("num_games must be positive")
-    if not 0.0 < args.train_fraction < 1.0:
-        raise ValueError("train_fraction must be between 0 and 1")
+    if args.num_games < 2:
+        raise ValueError("num_games must be at least 2 for the game-level split")
     if not math.isfinite(args.theta_scale) or args.theta_scale < 0.0:
         raise ValueError("theta_scale must be a finite non-negative value")
     if args.vi_steps <= 0:
         raise ValueError("vi_steps must be positive")
-    if args.learning_rate <= 0:
-        raise ValueError("learning_rate must be positive")
     if not math.isfinite(args.prior_std) or args.prior_std <= 0:
         raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
-    if args.progress_interval <= 0:
-        raise ValueError("progress_interval must be positive")
 
 
 def _collect_validation_observations(
@@ -300,12 +270,11 @@ def _build_report(
             "data_source": args.data_source,
             "feature_names": feature_names,
             "num_games": args.num_games,
-            "train_fraction": args.train_fraction,
-            "split_unit": args.split_unit,
+            "train_fraction": DEFAULT_TRAIN_FRACTION,
             "theta_scale": args.theta_scale,
             "training_likelihood": "sequential",
             "vi_steps": args.vi_steps,
-            "learning_rate": args.learning_rate,
+            "learning_rate": DEFAULT_LEARNING_RATE,
             "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
             "seed": args.seed,
@@ -345,10 +314,6 @@ def _print_progress(message: str) -> None:
     print(f"[run_validation] {message}", file=sys.stderr, flush=True)
 
 
-def _print_vi_progress(step: int, total_steps: int, elbo: float) -> None:
-    _print_progress(f"VI step {step}/{total_steps}: ELBO={elbo:.3f}")
-
-
 def _print_report(report: dict[str, Any], output: Path) -> None:
     config = report["config"]
     data = report["data"]
@@ -361,7 +326,7 @@ def _print_report(report: dict[str, Any], output: Path) -> None:
     print(f"profile: {config['profile']}")
     print(f"data source: {config['data_source']}")
     print(f"theta scale: {config['theta_scale']}")
-    print(f"split unit: {config['split_unit']}")
+    print("split: game-level 75/25")
     print("training likelihood: sequential")
     print(f"prior std: {config['prior_std']}")
     print(

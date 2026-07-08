@@ -23,7 +23,7 @@ At the moment, the project includes:
 - interpretable card features, such as whether a card is a trump, a carico, or
   wins the current trick;
 - synthetic data collection from simulated games;
-- a likelihood that reasons over the opponent's hidden hand;
+- an absolute marginal likelihood that reasons over the opponent's hidden hand;
 - a sequential hand belief that is updated across the moves of the same game;
 - mean-field Gaussian variational inference for `theta`;
 - validation scripts for theta recovery and held-out prediction;
@@ -159,10 +159,8 @@ python3 scripts/run_validation.py \
   --feature-set style \
   --profile greedy_points \
   --theta-scale 1.0 \
-  --split-unit game \
   --vi-steps 300 \
   --elbo-samples 2 \
-  --progress-interval 50 \
   --output artifacts/validation_report.json
 ```
 
@@ -181,6 +179,9 @@ Useful flags:
 - `--prior-std` changes the width of the Gaussian prior over `theta`.
 - `--vi-steps` controls how long we optimize the variational posterior.
 
+Validation uses a fixed game-level 75/25 train/test split, which keeps all
+moves from one game in the same partition and avoids leakage between train and
+held-out data. The Adam learning rate is fixed at `0.03`.
 
 ## Run A Comparison
 
@@ -194,7 +195,6 @@ python3 scripts/run_comparison.py \
   --seeds 0 1 2 \
   --num-games 20 \
   --theta-scale 1.0 \
-  --split-unit game \
   --vi-steps 300 \
   --jobs 4
 ```

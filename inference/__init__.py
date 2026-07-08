@@ -8,7 +8,6 @@ from inference.beliefs import (
     known_opponent_cards,
 )
 from inference.likelihood import (
-    LikelihoodMode,
     local_card_probability,
     marginal_card_probability,
     marginal_log_likelihood,
@@ -31,7 +30,6 @@ from inference.vi import (
 )
 
 __all__ = [
-    "LikelihoodMode",
     "PreparedObservation",
     "PreparedSequentialGame",
     "PreparedSequentialObservation",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from game import Card, full_deck
 from inference.beliefs import (
@@ -14,7 +14,6 @@ from inference.beliefs import (
     hand_count,
     known_opponent_cards,
 )
-from inference.likelihood import LikelihoodMode
 from opponents.features import FEATURE_NAMES, card_features
 
 try:
@@ -72,7 +71,6 @@ def prepare_observations(
     observations: Sequence[object],
     *,
     feature_names: Sequence[str] = FEATURE_NAMES,
-    mode: LikelihoodMode = LikelihoodMode.CONDITIONAL,
     dtype: object | None = None,
 ) -> tuple[PreparedObservation, ...]:
     """Precompute hand features once before VI"""
@@ -83,7 +81,6 @@ def prepare_observations(
         _prepare_observation(
             observation,
             feature_names=feature_names,
-            mode=mode,
             dtype=dtype,
         )
         for observation in observations
@@ -291,7 +288,6 @@ def fit_variational_posterior(
     observations: Sequence[object],
     *,
     feature_names: Sequence[str] = FEATURE_NAMES,
-    mode: LikelihoodMode = LikelihoodMode.CONDITIONAL,
     num_steps: int = 500,
     learning_rate: float = 0.05,
     num_elbo_samples: int = 1,
@@ -300,8 +296,6 @@ def fit_variational_posterior(
     initial_std: float = 1.0,
     temperature: float = 1.0,
     seed: int | None = None,
-    progress_callback: Callable[[int, int, float], None] | None = None,
-    progress_interval: int = 50,
 ) -> VariationalPosterior:
     """Fit q(theta) = N(mean, diag(std^2)) with Adam"""
 
@@ -314,8 +308,6 @@ def fit_variational_posterior(
         raise ValueError("num_elbo_samples must be positive")
     if initial_std <= 0:
         raise ValueError("initial_std must be positive")
-    if progress_interval <= 0:
-        raise ValueError("progress_interval must be positive")
 
     feature_names = tuple(feature_names)
     dim = len(feature_names)
@@ -375,14 +367,6 @@ def fit_variational_posterior(
         optimizer.step()
         elbo_history.append(elbo_value)
 
-        step = step_index + 1
-        if progress_callback is not None and _should_report_progress(
-            step,
-            num_steps,
-            progress_interval,
-        ):
-            progress_callback(step, num_steps, elbo_value)
-
     return VariationalPosterior(
         mean=tuple(float(value) for value in best_mean),
         std=tuple(float(value) for value in best_log_std.exp()),
@@ -398,11 +382,9 @@ def _prepare_observation(
     observation: object,
     *,
     feature_names: Sequence[str],
-    mode: LikelihoodMode,
     dtype: object,
 ) -> PreparedObservation:
     torch_module = _require_torch()
-    mode = LikelihoodMode(mode)
     unknown_cards = compatible_unknown_cards(
         observation.public_state,
         observation.observer_hand,
@@ -438,14 +420,12 @@ def _prepare_observation(
         for hand in hands
     ]
     tensor = torch_module.tensor(feature_rows, dtype=dtype)
-    log_hand_factor = 0.0
-    if mode == LikelihoodMode.ABSOLUTE:
-        total_count = hand_count(
-            len(unknown_cards),
-            hand_size,
-            required_count=len(required_cards),
-        )
-        log_hand_factor = math.log(len(hands)) - math.log(total_count)
+    total_count = hand_count(
+        len(unknown_cards),
+        hand_size,
+        required_count=len(required_cards),
+    )
+    log_hand_factor = math.log(len(hands)) - math.log(total_count)
 
     return PreparedObservation(
         features=tensor,
@@ -638,10 +618,6 @@ def _estimate_elbo(
     expected_log_likelihood = torch_module.stack(log_likelihoods).mean()
     kl = diag_gaussian_kl(mean, log_std, prior_mean, prior_std)
     return expected_log_likelihood - kl
-
-
-def _should_report_progress(step: int, total_steps: int, interval: int) -> bool:
-    return step == 1 or step == total_steps or step % interval == 0
 
 
 def _group_by_game(observations: Sequence[object]) -> tuple[tuple[object, ...], ...]:

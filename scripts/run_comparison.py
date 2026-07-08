@@ -32,7 +32,6 @@ RUN_FIELDNAMES = (
     "profile",
     "seed",
     "theta_scale",
-    "split_unit",
     "prior_std",
     "feature_count",
     "feature_names",
@@ -164,12 +163,6 @@ def _parse_args() -> argparse.Namespace:
         help="number of synthetic games per run",
     )
     parser.add_argument(
-        "--train-fraction",
-        type=float,
-        default=0.75,
-        help="fraction of observations used for VI",
-    )
-    parser.add_argument(
         "--max-train-observations",
         type=int,
         default=0,
@@ -180,12 +173,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="cap held-out observations used by evaluation; 0 uses the full test split",
-    )
-    parser.add_argument(
-        "--split-unit",
-        choices=("game", "observation"),
-        default="game",
-        help="whether train/test split is done by full games or individual observations",
     )
     parser.add_argument(
         "--theta-scale",
@@ -200,12 +187,6 @@ def _parse_args() -> argparse.Namespace:
         help="number of Adam steps for variational inference",
     )
     parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=0.03,
-        help="Adam learning rate",
-    )
-    parser.add_argument(
         "--prior-std",
         type=float,
         default=1.0,
@@ -218,21 +199,10 @@ def _parse_args() -> argparse.Namespace:
         help="Monte Carlo samples from q(theta) per ELBO step",
     )
     parser.add_argument(
-        "--progress-interval",
-        type=int,
-        default=50,
-        help="VI steps between progress updates when --show-vi-progress is enabled",
-    )
-    parser.add_argument(
         "--jobs",
         type=int,
         default=1,
         help="parallel worker processes for independent runs",
-    )
-    parser.add_argument(
-        "--show-vi-progress",
-        action="store_true",
-        help="print per-run VI progress",
     )
     parser.add_argument(
         "--output-dir",
@@ -251,10 +221,8 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    if args.num_games <= 0:
-        raise ValueError("num_games must be positive")
-    if not 0.0 < args.train_fraction < 1.0:
-        raise ValueError("train_fraction must be between 0 and 1")
+    if args.num_games < 2:
+        raise ValueError("num_games must be at least 2 for the game-level split")
     if args.max_train_observations < 0:
         raise ValueError("max_train_observations cannot be negative")
     if args.max_test_observations < 0:
@@ -263,18 +231,12 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("theta_scale must be a finite non-negative value")
     if args.vi_steps <= 0:
         raise ValueError("vi_steps must be positive")
-    if args.learning_rate <= 0:
-        raise ValueError("learning_rate must be positive")
     if not math.isfinite(args.prior_std) or args.prior_std <= 0:
         raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
-    if args.progress_interval <= 0:
-        raise ValueError("progress_interval must be positive")
     if args.jobs <= 0:
         raise ValueError("jobs must be positive")
-    if args.jobs > 1 and args.show_vi_progress:
-        raise ValueError("--show-vi-progress is only supported with --jobs 1")
 
 
 def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
@@ -285,16 +247,12 @@ def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
             seed=seed,
             data_source=args.data_source,
             num_games=args.num_games,
-            train_fraction=args.train_fraction,
             max_train_observations=args.max_train_observations,
             max_test_observations=args.max_test_observations,
-            split_unit=args.split_unit,
             theta_scale=args.theta_scale,
             vi_steps=args.vi_steps,
-            learning_rate=args.learning_rate,
             prior_std=args.prior_std,
             elbo_samples=args.elbo_samples,
-            progress_interval=args.progress_interval,
         )
         for feature_set in args.feature_sets
         for profile in args.profiles
@@ -305,7 +263,7 @@ def _iter_run_specs(args: argparse.Namespace) -> tuple[SimpleNamespace, ...]:
 def _format_spec(spec: SimpleNamespace) -> str:
     return (
         f"feature_set={spec.feature_set}, profile={spec.profile}, seed={spec.seed}, "
-        f"theta_scale={spec.theta_scale}, split_unit={spec.split_unit}"
+        f"theta_scale={spec.theta_scale}"
     )
 
 
@@ -363,7 +321,7 @@ def _run_cases(
         rows: list[dict[str, Any]] = []
         for index, spec in enumerate(run_specs, start=1):
             _print_progress(f"run {index}/{len(run_specs)}: {_format_spec(spec)}")
-            row = _run_validation_case(spec, show_vi_progress=args.show_vi_progress)
+            row = _run_validation_case(spec)
             rows.append(row)
             _append_csv_row(incremental_runs_csv_path, row, RUN_FIELDNAMES)
             _print_progress(f"run {index}/{len(run_specs)} done: {_format_row(row)}")
@@ -373,7 +331,7 @@ def _run_cases(
     max_workers = min(args.jobs, len(run_specs))
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_to_run = {
-            executor.submit(_run_validation_case, spec, show_vi_progress=False): (index, spec)
+            executor.submit(_run_validation_case, spec): (index, spec)
             for index, spec in enumerate(run_specs, start=1)
         }
         for completed, future in enumerate(as_completed(future_to_run), start=1):
@@ -393,11 +351,7 @@ def _run_cases(
     return [rows_by_index[index] for index in range(1, len(run_specs) + 1)]
 
 
-def _run_validation_case(
-    spec: SimpleNamespace,
-    *,
-    show_vi_progress: bool,
-) -> dict[str, Any]:
+def _run_validation_case(spec: SimpleNamespace) -> dict[str, Any]:
     feature_names = validation.FEATURE_SETS[spec.feature_set]
     true_theta = validation._scale_theta(
         validation.THETA_PROFILES[spec.feature_set][spec.profile],
@@ -411,22 +365,18 @@ def _run_validation_case(
     )
     train, test = train_test_split(
         observations,
-        train_fraction=spec.train_fraction,
-        split_unit=spec.split_unit,
+        train_fraction=validation.DEFAULT_TRAIN_FRACTION,
     )
     train = _limit_observations(train, spec.max_train_observations)
     test = _limit_observations(test, spec.max_test_observations)
-    progress_callback = validation._print_vi_progress if show_vi_progress else None
     posterior = fit_variational_posterior(
         train,
         feature_names=feature_names,
         num_steps=spec.vi_steps,
-        learning_rate=spec.learning_rate,
+        learning_rate=validation.DEFAULT_LEARNING_RATE,
         num_elbo_samples=spec.elbo_samples,
         prior_std=spec.prior_std,
         seed=spec.seed + 4,
-        progress_callback=progress_callback,
-        progress_interval=spec.progress_interval,
     )
     predictive = heldout_predictive_evaluation(
         test,
@@ -448,7 +398,6 @@ def _run_validation_case(
         "profile": spec.profile,
         "seed": spec.seed,
         "theta_scale": spec.theta_scale,
-        "split_unit": spec.split_unit,
         "prior_std": spec.prior_std,
         "feature_count": len(feature_names),
         "feature_names": _json_cell(feature_names),
@@ -498,14 +447,13 @@ def _write_outputs(
             "seeds": args.seeds,
             "data_source": args.data_source,
             "num_games": args.num_games,
-            "train_fraction": args.train_fraction,
+            "train_fraction": validation.DEFAULT_TRAIN_FRACTION,
             "max_train_observations": args.max_train_observations,
             "max_test_observations": args.max_test_observations,
-            "split_unit": args.split_unit,
             "theta_scale": args.theta_scale,
             "training_likelihood": "sequential",
             "vi_steps": args.vi_steps,
-            "learning_rate": args.learning_rate,
+            "learning_rate": validation.DEFAULT_LEARNING_RATE,
             "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
             "jobs": args.jobs,

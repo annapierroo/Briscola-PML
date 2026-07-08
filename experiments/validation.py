@@ -10,12 +10,10 @@ import random
 from experiments.episode_collection import OpponentMoveObservation, collect_observations
 from game import Card
 from inference import (
-    LikelihoodMode,
     compatible_unknown_cards,
     fit_variational_posterior,
     known_opponent_cards,
     local_card_probability,
-    marginal_card_probability,
     sequential_log_likelihood,
 )
 from opponents import FEATURE_NAMES, RandomOpponent, ThetaSoftmaxOpponent, zero_theta
@@ -44,28 +42,7 @@ class PredictiveResult:
     posterior_mean_log_probability: float
     baseline_mean_log_probability: float
     num_observations: int
-    mode: str = "sequential"
-    posterior_samples: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class CalibrationBin:
-    """One calibration bucket."""
-
-    lower: float
-    upper: float
-    count: int
-    mean_probability: float
-    empirical_frequency: float
-
-
-@dataclass(frozen=True, slots=True)
-class CalibrationResult:
-    """Calibration curve and ECE."""
-
-    bins: tuple[CalibrationBin, ...]
-    expected_calibration_error: float
-    num_events: int
+    likelihood: str = "sequential"
 
 
 def collect_matched_model_observations(
@@ -164,33 +141,14 @@ def run_recovery_experiment(
 def train_test_split(
     observations: Sequence[OpponentMoveObservation],
     *,
-    train_fraction: float = 0.7,
-    split_unit: str = "observation",
+    train_fraction: float = 0.75,
 ) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
-    """Deterministic split that preserves observation order."""
+    """Deterministic game-level split that preserves observation order."""
 
     if not 0.0 < train_fraction < 1.0:
         raise ValueError("train_fraction must be between 0 and 1")
     if len(observations) < 2:
         raise ValueError("at least two observations are required")
-    if split_unit == "game":
-        return _train_test_split_by_game(observations, train_fraction=train_fraction)
-    if split_unit != "observation":
-        raise ValueError("split_unit must be 'game' or 'observation'")
-
-    split_index = max(
-        1,
-        min(len(observations) - 1, int(len(observations) * train_fraction)),
-    )
-    return tuple(observations[:split_index]), tuple(observations[split_index:])
-
-
-def _train_test_split_by_game(
-    observations: Sequence[OpponentMoveObservation],
-    *,
-    train_fraction: float,
-) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
-    # Keep all moves from one game in the same partition.
     game_ids = tuple(dict.fromkeys(observation.game_id for observation in observations))
     if len(game_ids) < 2:
         raise ValueError("game split requires observations from at least two games")
@@ -214,9 +172,6 @@ def heldout_predictive_evaluation(
     observations: Sequence[OpponentMoveObservation],
     posterior_mean: Sequence[float],
     *,
-    posterior_std: Sequence[float] | None = None,
-    posterior_samples: int = 0,
-    seed: int = 0,
     baseline_theta: Sequence[float] | None = None,
     feature_names: Sequence[str] = FEATURE_NAMES,
 ) -> PredictiveResult:
@@ -226,15 +181,9 @@ def heldout_predictive_evaluation(
     if baseline_theta is None:
         baseline_theta = zero_theta(feature_names)
 
-    theta_samples = _posterior_theta_samples(
-        posterior_mean,
-        posterior_std,
-        posterior_samples=posterior_samples,
-        seed=seed,
-    )
-    posterior_log_likelihood = _posterior_sequential_log_likelihood(
+    posterior_log_likelihood = sequential_log_likelihood(
         observations,
-        theta_samples,
+        posterior_mean,
         feature_names=feature_names,
     )
     baseline_log_likelihood = sequential_log_likelihood(
@@ -255,173 +204,6 @@ def heldout_predictive_evaluation(
             count,
         ),
         num_observations=count,
-        posterior_samples=max(0, posterior_samples),
-    )
-
-
-def calibration_curve(
-    observations: Sequence[OpponentMoveObservation],
-    theta: Sequence[float],
-    *,
-    posterior_std: Sequence[float] | None = None,
-    posterior_samples: int = 0,
-    seed: int = 0,
-    feature_names: Sequence[str] = FEATURE_NAMES,
-    num_bins: int = 10,
-    mode: LikelihoodMode = LikelihoodMode.ABSOLUTE,
-) -> CalibrationResult:
-    """Bin local marginal probabilities and empirical frequencies."""
-
-    if num_bins <= 0:
-        raise ValueError("num_bins must be positive")
-
-    feature_names = tuple(feature_names)
-    mode = LikelihoodMode(mode)
-    theta_samples = _posterior_theta_samples(
-        theta,
-        posterior_std,
-        posterior_samples=posterior_samples,
-        seed=seed,
-    )
-    buckets: list[list[tuple[float, int]]] = [[] for _ in range(num_bins)]
-    for observation in observations:
-        # Calibration is a local diagnostic over candidate-card events.
-        for candidate in compatible_unknown_cards(
-            observation.public_state,
-            observation.observer_hand,
-            opponent_player=observation.player,
-        ):
-            probability = _posterior_predictive_card_probability(
-                candidate,
-                observation,
-                theta_samples,
-                observed_player=observation.player,
-                feature_names=feature_names,
-                mode=mode,
-            )
-            bin_index = min(num_bins - 1, int(probability * num_bins))
-            label = int(candidate == observation.chosen_card)
-            buckets[bin_index].append((probability, label))
-
-    bins = tuple(
-        _build_calibration_bin(index, values, num_bins)
-        for index, values in enumerate(buckets)
-    )
-    num_events = sum(bucket.count for bucket in bins)
-    ece = (
-        sum(
-            bucket.count
-            * abs(bucket.mean_probability - bucket.empirical_frequency)
-            for bucket in bins
-        )
-        / num_events
-        if num_events
-        else 0.0
-    )
-    return CalibrationResult(
-        bins=bins,
-        expected_calibration_error=ece,
-        num_events=num_events,
-    )
-
-
-def _posterior_theta_samples(
-    posterior_mean: Sequence[float],
-    posterior_std: Sequence[float] | None,
-    *,
-    posterior_samples: int,
-    seed: int,
-) -> tuple[tuple[float, ...], ...]:
-    mean = tuple(float(value) for value in posterior_mean)
-    if posterior_samples < 0:
-        raise ValueError("posterior_samples cannot be negative")
-    if posterior_samples == 0:
-        return (mean,)
-    if posterior_std is None:
-        raise ValueError("posterior_std is required when posterior_samples is positive")
-    std = tuple(float(value) for value in posterior_std)
-    if len(std) != len(mean):
-        raise ValueError("posterior_std length must match posterior_mean length")
-    if any(value < 0.0 for value in std):
-        raise ValueError("posterior_std values cannot be negative")
-
-    rng = random.Random(seed)
-    return tuple(
-        tuple(
-            rng.gauss(mean_value, std_value)
-            for mean_value, std_value in zip(mean, std)
-        )
-        for _ in range(posterior_samples)
-    )
-
-
-def _posterior_sequential_log_likelihood(
-    observations: Sequence[OpponentMoveObservation],
-    theta_samples: Sequence[Sequence[float]],
-    *,
-    feature_names: Sequence[str],
-) -> float:
-    if not theta_samples:
-        raise ValueError("theta_samples cannot be empty")
-    log_likelihoods = tuple(
-        sequential_log_likelihood(
-            observations,
-            theta,
-            feature_names=feature_names,
-        )
-        for theta in theta_samples
-    )
-    return _logmeanexp(log_likelihoods)
-
-
-def _posterior_predictive_card_probability(
-    card: Card,
-    observation: OpponentMoveObservation,
-    theta_samples: Sequence[Sequence[float]],
-    *,
-    observed_player: int,
-    feature_names: Sequence[str],
-    mode: LikelihoodMode,
-) -> float:
-    if not theta_samples:
-        raise ValueError("theta_samples cannot be empty")
-    return sum(
-        marginal_card_probability(
-            card,
-            observation.public_state,
-            observation.observer_hand,
-            theta,
-            observed_player=observed_player,
-            feature_names=feature_names,
-            mode=mode,
-        )
-        for theta in theta_samples
-    ) / len(theta_samples)
-
-
-def _build_calibration_bin(
-    index: int,
-    values: Sequence[tuple[float, int]],
-    num_bins: int,
-) -> CalibrationBin:
-    lower = index / num_bins
-    upper = (index + 1) / num_bins
-    if not values:
-        return CalibrationBin(
-            lower=lower,
-            upper=upper,
-            count=0,
-            mean_probability=0.0,
-            empirical_frequency=0.0,
-        )
-
-    count = len(values)
-    return CalibrationBin(
-        lower=lower,
-        upper=upper,
-        count=count,
-        mean_probability=sum(probability for probability, _ in values) / count,
-        empirical_frequency=sum(label for _, label in values) / count,
     )
 
 
@@ -504,17 +286,6 @@ def _sample_card_from_hand(
         if threshold <= cumulative:
             return card
     return hand[-1]
-
-
-def _logmeanexp(values: Sequence[float]) -> float:
-    if not values:
-        raise ValueError("values cannot be empty")
-    maximum = max(values)
-    if not math.isfinite(maximum):
-        return maximum
-    return maximum + math.log(
-        sum(math.exp(value - maximum) for value in values) / len(values)
-    )
 
 
 def _safe_mean_log_probability(log_likelihood: float, count: int) -> float:
