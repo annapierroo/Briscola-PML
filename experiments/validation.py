@@ -35,14 +35,15 @@ class RecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class PredictiveResult:
-    """Held-out sequential log-likelihood comparison."""
+    """Held-out posterior predictive comparison."""
 
     posterior_log_likelihood: float
     baseline_log_likelihood: float
     posterior_mean_log_probability: float
     baseline_mean_log_probability: float
     num_observations: int
-    likelihood: str = "sequential"
+    posterior_samples: int
+    likelihood: str = "posterior_predictive_sequential"
 
 
 def collect_matched_model_observations(
@@ -172,19 +173,52 @@ def heldout_predictive_evaluation(
     observations: Sequence[OpponentMoveObservation],
     posterior_mean: Sequence[float],
     *,
+    posterior_std: Sequence[float],
+    posterior_samples: int = 20,
+    seed: int = 0,
     baseline_theta: Sequence[float] | None = None,
     feature_names: Sequence[str] = FEATURE_NAMES,
 ) -> PredictiveResult:
-    """Compare the VI posterior against a zero-theta sequential baseline."""
+    """Compare the VI posterior predictive against a zero-theta baseline."""
 
     feature_names = tuple(feature_names)
-    if baseline_theta is None:
-        baseline_theta = zero_theta(feature_names)
-
-    posterior_log_likelihood = sequential_log_likelihood(
-        observations,
+    posterior_mean = _checked_theta(
         posterior_mean,
         feature_names=feature_names,
+        name="posterior_mean",
+    )
+    posterior_std = _checked_theta(
+        posterior_std,
+        feature_names=feature_names,
+        name="posterior_std",
+    )
+    if any(value < 0.0 for value in posterior_std):
+        raise ValueError("posterior_std cannot contain negative values")
+    if posterior_samples <= 0:
+        raise ValueError("posterior_samples must be positive")
+    if baseline_theta is None:
+        baseline_theta = zero_theta(feature_names)
+    baseline_theta = _checked_theta(
+        baseline_theta,
+        feature_names=feature_names,
+        name="baseline_theta",
+    )
+
+    theta_samples = _sample_posterior_thetas(
+        posterior_mean,
+        posterior_std,
+        num_samples=posterior_samples,
+        seed=seed,
+    )
+    posterior_log_likelihood = _logmeanexp(
+        tuple(
+            sequential_log_likelihood(
+                observations,
+                theta,
+                feature_names=feature_names,
+            )
+            for theta in theta_samples
+        )
     )
     baseline_log_likelihood = sequential_log_likelihood(
         observations,
@@ -204,6 +238,49 @@ def heldout_predictive_evaluation(
             count,
         ),
         num_observations=count,
+        posterior_samples=posterior_samples,
+    )
+
+
+def _checked_theta(
+    theta: Sequence[float],
+    *,
+    feature_names: tuple[str, ...],
+    name: str,
+) -> tuple[float, ...]:
+    values = tuple(float(value) for value in theta)
+    if len(values) != len(feature_names):
+        raise ValueError(f"{name} length must match feature_names length")
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError(f"{name} must contain only finite values")
+    return values
+
+
+def _sample_posterior_thetas(
+    posterior_mean: tuple[float, ...],
+    posterior_std: tuple[float, ...],
+    *,
+    num_samples: int,
+    seed: int,
+) -> tuple[tuple[float, ...], ...]:
+    rng = random.Random(seed)
+    return tuple(
+        tuple(
+            rng.gauss(mean, std)
+            for mean, std in zip(posterior_mean, posterior_std)
+        )
+        for _ in range(num_samples)
+    )
+
+
+def _logmeanexp(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("at least one log value is required")
+    maximum = max(values)
+    if maximum == -math.inf:
+        return -math.inf
+    return maximum + math.log(
+        sum(math.exp(value - maximum) for value in values) / len(values)
     )
 
 

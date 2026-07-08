@@ -99,6 +99,7 @@ DEFAULT_FEATURE_SETS = ("style", "core", "compact", "interactive", "trump_count"
 DEFAULT_PROFILES = ("aggressive", "conservative", "greedy_points")
 DEFAULT_TRAIN_FRACTION = 0.75
 DEFAULT_LEARNING_RATE = 0.03
+DEFAULT_POSTERIOR_SAMPLES = 20
 
 RUN_FIELDNAMES = (
     "feature_set",
@@ -106,6 +107,7 @@ RUN_FIELDNAMES = (
     "seed",
     "theta_scale",
     "prior_std",
+    "posterior_samples",
     "feature_count",
     "feature_names",
     "theta_true",
@@ -122,6 +124,7 @@ RUN_FIELDNAMES = (
     "heldout_posterior_mean_logp",
     "heldout_baseline_mean_logp",
     "heldout_mean_logp_delta",
+    "heldout_likelihood",
     "initial_elbo",
     "final_elbo",
 )
@@ -152,6 +155,7 @@ class ExperimentSpec:
     vi_steps: int
     prior_std: float
     elbo_samples: int
+    posterior_samples: int
     max_train_observations: int = 0
     max_test_observations: int = 0
 
@@ -333,6 +337,12 @@ def _add_common_experiment_args(
         default=2,
         help="Monte Carlo samples from q(theta) per ELBO step",
     )
+    parser.add_argument(
+        "--posterior-samples",
+        type=int,
+        default=DEFAULT_POSTERIOR_SAMPLES,
+        help="theta samples from q(theta) for held-out posterior prediction",
+    )
 
 
 def _validate_common_args(args: argparse.Namespace) -> None:
@@ -346,6 +356,8 @@ def _validate_common_args(args: argparse.Namespace) -> None:
         raise ValueError("prior_std must be a finite positive value")
     if args.elbo_samples <= 0:
         raise ValueError("elbo_samples must be positive")
+    if args.posterior_samples <= 0:
+        raise ValueError("posterior_samples must be positive")
 
 
 def _validate_compare_args(args: argparse.Namespace) -> None:
@@ -367,12 +379,14 @@ def _run_single(args: argparse.Namespace) -> None:
         vi_steps=args.vi_steps,
         prior_std=args.prior_std,
         elbo_samples=args.elbo_samples,
+        posterior_samples=args.posterior_samples,
     )
     _print_progress(
         "single",
         "starting validation "
         f"(feature_set={spec.feature_set}, profile={spec.profile}, "
-        f"games={spec.num_games}, theta_scale={spec.theta_scale}, seed={spec.seed})",
+        f"games={spec.num_games}, theta_scale={spec.theta_scale}, "
+        f"posterior_samples={spec.posterior_samples}, seed={spec.seed})",
     )
     row = _run_case(spec, progress_label="single")
     report = _build_single_report(spec, row)
@@ -417,6 +431,7 @@ def _iter_compare_specs(args: argparse.Namespace) -> tuple[ExperimentSpec, ...]:
             vi_steps=args.vi_steps,
             prior_std=args.prior_std,
             elbo_samples=args.elbo_samples,
+            posterior_samples=args.posterior_samples,
             max_train_observations=args.max_train_observations,
             max_test_observations=args.max_test_observations,
         )
@@ -472,6 +487,9 @@ def _run_case(
     predictive = heldout_predictive_evaluation(
         test,
         posterior_mean=posterior.mean,
+        posterior_std=posterior.std,
+        posterior_samples=spec.posterior_samples,
+        seed=spec.seed + 5,
         feature_names=feature_names,
     )
     posterior_error = tuple(
@@ -490,6 +508,7 @@ def _run_case(
         "seed": spec.seed,
         "theta_scale": spec.theta_scale,
         "prior_std": spec.prior_std,
+        "posterior_samples": predictive.posterior_samples,
         "feature_count": len(feature_names),
         "feature_names": feature_names,
         "theta_true": true_theta,
@@ -513,6 +532,7 @@ def _run_case(
             predictive.posterior_mean_log_probability
             - predictive.baseline_mean_log_probability
         ),
+        "heldout_likelihood": predictive.likelihood,
         "initial_elbo": posterior.elbo_history[0],
         "final_elbo": posterior.elbo_history[-1],
         "elbo_history": posterior.elbo_history,
@@ -554,6 +574,7 @@ def _build_single_report(spec: ExperimentSpec, row: dict[str, Any]) -> dict[str,
             "learning_rate": DEFAULT_LEARNING_RATE,
             "prior_std": spec.prior_std,
             "elbo_samples": spec.elbo_samples,
+            "posterior_samples": spec.posterior_samples,
             "seed": spec.seed,
         },
         "data": {
@@ -579,7 +600,8 @@ def _build_single_report(spec: ExperimentSpec, row: dict[str, Any]) -> dict[str,
             "posterior_mean_log_probability": row["heldout_posterior_mean_logp"],
             "baseline_mean_log_probability": row["heldout_baseline_mean_logp"],
             "num_observations": row["test_observations"],
-            "likelihood": "sequential",
+            "posterior_samples": row["posterior_samples"],
+            "likelihood": row["heldout_likelihood"],
         },
     }
 
@@ -652,6 +674,7 @@ def _write_compare_outputs(
             "learning_rate": DEFAULT_LEARNING_RATE,
             "prior_std": args.prior_std,
             "elbo_samples": args.elbo_samples,
+            "posterior_samples": args.posterior_samples,
             "jobs": args.jobs,
         },
         "runs": rows,
@@ -808,10 +831,17 @@ def _print_single_report(report: dict[str, Any], output: Path) -> None:
     print(f"posterior L2 error: {theta['posterior_l2_error']:.3f}")
     print(f"ELBO: {vi['initial_elbo']:.3f} -> {vi['final_elbo']:.3f}")
     print()
-    print(f"held-out loglik posterior: {heldout['posterior_log_likelihood']:.3f}")
-    print(f"held-out loglik baseline:  {heldout['baseline_log_likelihood']:.3f}")
-    print(f"mean logp posterior:       {heldout['posterior_mean_log_probability']:.3f}")
-    print(f"mean logp baseline:        {heldout['baseline_mean_log_probability']:.3f}")
+    print(f"posterior samples: {heldout['posterior_samples']}")
+    print(
+        "held-out loglik posterior predictive: "
+        f"{heldout['posterior_log_likelihood']:.3f}"
+    )
+    print(f"held-out loglik baseline:             {heldout['baseline_log_likelihood']:.3f}")
+    print(
+        "mean logp posterior predictive:       "
+        f"{heldout['posterior_mean_log_probability']:.3f}"
+    )
+    print(f"mean logp baseline:                   {heldout['baseline_mean_log_probability']:.3f}")
     print()
     print(f"report written to: {output}")
 

@@ -20,6 +20,7 @@ from inference import (
 )
 from opponents import (
     AGGRESSIVE_THETA,
+    CORE_FEATURE_NAMES,
     GREEDY_POINTS_THETA,
     RANDOM_THETA,
     STYLE_FEATURE_NAMES,
@@ -70,7 +71,11 @@ class ProjectTest(unittest.TestCase):
 
     def test_synthetic_games_give_observations(self) -> None:
         result = play_synthetic_game(
-            observed_model=ThetaSoftmaxOpponent(AGGRESSIVE_THETA, seed=2),
+            observed_model=ThetaSoftmaxOpponent(
+                AGGRESSIVE_THETA,
+                seed=2,
+                feature_names=CORE_FEATURE_NAMES,
+            ),
             observer_model=RandomOpponent(seed=1),
             seed=11,
             observer_player=0,
@@ -127,7 +132,11 @@ class ProjectTest(unittest.TestCase):
 
     def test_hidden_hand_belief_supports_marginal_prediction(self) -> None:
         result = play_synthetic_game(
-            observed_model=ThetaSoftmaxOpponent(GREEDY_POINTS_THETA, seed=1),
+            observed_model=ThetaSoftmaxOpponent(
+                GREEDY_POINTS_THETA,
+                seed=1,
+                feature_names=CORE_FEATURE_NAMES,
+            ),
             observer_model=RandomOpponent(seed=2),
             seed=3,
             observer_player=0,
@@ -157,6 +166,7 @@ class ProjectTest(unittest.TestCase):
             move.observer_hand,
             RANDOM_THETA,
             observed_player=move.player,
+            feature_names=CORE_FEATURE_NAMES,
         )
 
         self.assertIn(move.chosen_card, unknown_cards)
@@ -167,20 +177,32 @@ class ProjectTest(unittest.TestCase):
     @unittest.skipIf(torch is None, "PyTorch is not installed")
     def test_sequential_likelihood_and_vi_run(self) -> None:
         result = play_synthetic_game(
-            observed_model=ThetaSoftmaxOpponent(GREEDY_POINTS_THETA, seed=8),
+            observed_model=ThetaSoftmaxOpponent(
+                GREEDY_POINTS_THETA,
+                seed=8,
+                feature_names=CORE_FEATURE_NAMES,
+            ),
             observer_model=RandomOpponent(seed=9),
             seed=10,
             observer_player=0,
             observed_player=1,
         )
         observations = result.observations[:3]
-        prepared = prepare_sequential_games(observations)
+        prepared = prepare_sequential_games(
+            observations,
+            feature_names=CORE_FEATURE_NAMES,
+        )
         theta = torch.tensor(GREEDY_POINTS_THETA, dtype=torch.float64)
 
         torch_value = float(log_sequential_likelihood_torch(prepared, theta))
-        direct_value = sequential_log_likelihood(observations, GREEDY_POINTS_THETA)
+        direct_value = sequential_log_likelihood(
+            observations,
+            GREEDY_POINTS_THETA,
+            feature_names=CORE_FEATURE_NAMES,
+        )
         posterior = fit_variational_posterior(
             observations[:2],
+            feature_names=CORE_FEATURE_NAMES,
             num_steps=2,
             learning_rate=0.01,
             num_elbo_samples=1,
@@ -195,7 +217,11 @@ class ProjectTest(unittest.TestCase):
     @unittest.skipIf(torch is None, "PyTorch is not installed")
     def test_validation_split_and_heldout_score(self) -> None:
         observations = collect_observations(
-            observed_model=ThetaSoftmaxOpponent(GREEDY_POINTS_THETA, seed=1),
+            observed_model=ThetaSoftmaxOpponent(
+                GREEDY_POINTS_THETA,
+                seed=1,
+                feature_names=CORE_FEATURE_NAMES,
+            ),
             observer_model=RandomOpponent(seed=2),
             num_games=3,
             seed=3,
@@ -204,7 +230,11 @@ class ProjectTest(unittest.TestCase):
         prediction = heldout_predictive_evaluation(
             test,
             posterior_mean=GREEDY_POINTS_THETA,
+            posterior_std=tuple(0.1 for _ in GREEDY_POINTS_THETA),
+            posterior_samples=5,
+            seed=4,
             baseline_theta=RANDOM_THETA,
+            feature_names=CORE_FEATURE_NAMES,
         )
 
         train_games = {move.game_id for move in train}
@@ -213,7 +243,8 @@ class ProjectTest(unittest.TestCase):
         self.assertTrue(train_games.isdisjoint(test_games))
         self.assertEqual(len(train) + len(test), len(observations))
         self.assertTrue(math.isfinite(prediction.posterior_log_likelihood))
-        self.assertEqual(prediction.likelihood, "sequential")
+        self.assertEqual(prediction.posterior_samples, 5)
+        self.assertEqual(prediction.likelihood, "posterior_predictive_sequential")
 
 
 if __name__ == "__main__":

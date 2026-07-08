@@ -26,7 +26,7 @@ At the moment, the project includes:
 - an absolute marginal likelihood that reasons over the opponent's hidden hand;
 - a sequential hand belief that is updated across the moves of the same game;
 - mean-field Gaussian variational inference for `theta`;
-- validation scripts for theta recovery and held-out prediction;
+- validation scripts for theta recovery and held-out posterior prediction;
 - comparison scripts to test different feature sets, opponent profiles, and
   random seeds;
 - unit tests for the simulator, opponents, inference code, validation code, and
@@ -83,6 +83,11 @@ means that we learn:
 - the final posterior after the VI optimization.
 
 The prior over `theta` is a zero-mean Gaussian.
+
+For held-out evaluation, we use the whole variational posterior rather than
+only its mean. We sample several theta vectors from `q(theta)`, evaluate the
+sequential likelihood for each one, and average those likelihoods in log space.
+This gives us a posterior predictive score for the test games.
 
 ## Feature Sets
 
@@ -160,6 +165,7 @@ python3 scripts/run_experiment.py single \
   --theta-scale 1.0 \
   --vi-steps 300 \
   --elbo-samples 2 \
+  --posterior-samples 50 \
   --output artifacts/validation_report.json
 ```
 
@@ -169,7 +175,7 @@ The report tells us:
 - the posterior mean and standard deviation learned by VI;
 - the per-feature error and L2 recovery error;
 - the ELBO trajectory;
-- held-out sequential log-likelihood against a zero-theta baseline.
+- held-out posterior predictive log-likelihood against a zero-theta baseline.
 
 Useful flags:
 
@@ -177,6 +183,8 @@ Useful flags:
   data generation.
 - `--prior-std` changes the width of the Gaussian prior over `theta`.
 - `--vi-steps` controls how long we optimize the variational posterior.
+- `--posterior-samples` controls how many theta samples from `q(theta)` we use
+  for held-out posterior prediction.
 
 Validation uses a fixed game-level 75/25 train/test split, which keeps all
 moves from one game in the same partition and avoids leakage between train and
@@ -189,12 +197,13 @@ seeds:
 
 ```bash
 python3 scripts/run_experiment.py compare \
-  --feature-sets style core compact trump_count extended \
+  --feature-sets style core compact interactive trump_count extended \
   --profiles aggressive conservative greedy_points \
   --seeds 0 1 2 \
   --num-games 20 \
   --theta-scale 1.0 \
   --vi-steps 300 \
+  --posterior-samples 20 \
   --jobs 4
 ```
 
@@ -205,7 +214,6 @@ that pipeline over several configurations and summarizes the results.
 Outputs are written under `artifacts/comparison/`. The run CSV is written
 incrementally, so we can inspect partial results while a larger comparison is
 still running.
-
 
 ## Dependencies
 
