@@ -146,17 +146,14 @@ inference/
   beliefs.py            Compatible hidden-hand enumeration.
   vi.py                 Sequential likelihood and variational inference.
 
-scripts/
-  run_experiment.py     Single validation runs and comparison grids.
-
-tests/
-  test_project.py       Core project tests.
+run_experiment.py       Single validation runs and comparison grids.
+test.py                 Core project tests.
 ```
 
 ## Run Tests
 
 ```bash
-python3 -m unittest
+python3 test.py
 ```
 
 ## Run One Validation
@@ -164,7 +161,7 @@ python3 -m unittest
 This command runs one synthetic experiment with the default feature set:
 
 ```bash
-python3 scripts/run_experiment.py single \
+python3 run_experiment.py single \
   --num-games 100 \
   --feature-set core \
   --profile greedy_points \
@@ -203,7 +200,7 @@ This repeats the same validation pipeline across feature sets, profiles, and
 seeds:
 
 ```bash
-python3 scripts/run_experiment.py compare \
+python3 run_experiment.py compare \
   --feature-sets core interactive \
   --profiles aggressive conservative greedy_points \
   --seeds 0 1 2 \
