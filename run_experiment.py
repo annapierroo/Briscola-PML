@@ -1,4 +1,4 @@
-"""Run synthetic Briscola opponent-model experiments."""
+"""Run synthetic Briscola opponent-model experiments"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
 
 from experiments import (  # noqa: E402
     collect_observations,
-    heldout_predictive_evaluation,
+    test_predictive_evaluation,
     train_test_split,
 )
 from inference import fit_variational_posterior  # noqa: E402
@@ -78,13 +78,13 @@ RUN_FIELDNAMES = (
     "train_observations",
     "test_observations",
     "theta_l2_error",
-    "heldout_posterior_log_likelihood",
-    "heldout_baseline_log_likelihood",
-    "heldout_loglik_delta",
-    "heldout_posterior_mean_logp",
-    "heldout_baseline_mean_logp",
-    "heldout_mean_logp_delta",
-    "heldout_likelihood",
+    "test_posterior_log_likelihood",
+    "test_baseline_log_likelihood",
+    "test_loglik_delta",
+    "test_posterior_mean_logp",
+    "test_baseline_mean_logp",
+    "test_mean_logp_delta",
+    "test_likelihood",
     "initial_elbo",
     "final_elbo",
 )
@@ -97,8 +97,8 @@ JSON_CSV_FIELDS = {
 }
 SUMMARY_METRICS = (
     "theta_l2_error",
-    "heldout_loglik_delta",
-    "heldout_mean_logp_delta",
+    "test_loglik_delta",
+    "test_mean_logp_delta",
     "final_elbo",
 )
 
@@ -240,7 +240,7 @@ def _add_compare_args(parser: argparse.ArgumentParser) -> None:
         "--max-test-observations",
         type=int,
         default=0,
-        help="cap held-out observations used by evaluation; 0 uses the full test split",
+        help="cap test observations used by evaluation; 0 uses the full test split",
     )
     parser.add_argument(
         "--jobs",
@@ -301,7 +301,7 @@ def _add_common_experiment_args(
         "--posterior-samples",
         type=int,
         default=DEFAULT_POSTERIOR_SAMPLES,
-        help="theta samples from q(theta) for held-out posterior prediction",
+        help="theta samples from q(theta) for test posterior prediction",
     )
 
 
@@ -442,8 +442,8 @@ def _run_case(
     )
 
     if progress_label is not None:
-        _print_progress(progress_label, "evaluating held-out predictions...")
-    predictive = heldout_predictive_evaluation(
+        _print_progress(progress_label, "evaluating test predictions...")
+    predictive = test_predictive_evaluation(
         test,
         posterior_mean=posterior.mean,
         posterior_std=posterior.std,
@@ -480,19 +480,19 @@ def _run_case(
         "train_observations": len(train),
         "test_observations": len(test),
         "theta_l2_error": _l2_norm(posterior_error),
-        "heldout_posterior_log_likelihood": predictive.posterior_log_likelihood,
-        "heldout_baseline_log_likelihood": predictive.baseline_log_likelihood,
-        "heldout_loglik_delta": (
+        "test_posterior_log_likelihood": predictive.posterior_log_likelihood,
+        "test_baseline_log_likelihood": predictive.baseline_log_likelihood,
+        "test_loglik_delta": (
             predictive.posterior_log_likelihood
             - predictive.baseline_log_likelihood
         ),
-        "heldout_posterior_mean_logp": predictive.posterior_mean_log_probability,
-        "heldout_baseline_mean_logp": predictive.baseline_mean_log_probability,
-        "heldout_mean_logp_delta": (
+        "test_posterior_mean_logp": predictive.posterior_mean_log_probability,
+        "test_baseline_mean_logp": predictive.baseline_mean_log_probability,
+        "test_mean_logp_delta": (
             predictive.posterior_mean_log_probability
             - predictive.baseline_mean_log_probability
         ),
-        "heldout_likelihood": predictive.likelihood,
+        "test_likelihood": predictive.likelihood,
         "initial_elbo": posterior.elbo_history[0],
         "final_elbo": posterior.elbo_history[-1],
         "elbo_history": posterior.elbo_history,
@@ -555,14 +555,14 @@ def _build_single_report(spec: ExperimentSpec, row: dict[str, Any]) -> dict[str,
             "final_elbo": row["final_elbo"],
             "elbo_history": row["elbo_history"],
         },
-        "heldout": {
-            "posterior_log_likelihood": row["heldout_posterior_log_likelihood"],
-            "baseline_log_likelihood": row["heldout_baseline_log_likelihood"],
-            "posterior_mean_log_probability": row["heldout_posterior_mean_logp"],
-            "baseline_mean_log_probability": row["heldout_baseline_mean_logp"],
+        "test": {
+            "posterior_log_likelihood": row["test_posterior_log_likelihood"],
+            "baseline_log_likelihood": row["test_baseline_log_likelihood"],
+            "posterior_mean_log_probability": row["test_posterior_mean_logp"],
+            "baseline_mean_log_probability": row["test_baseline_mean_logp"],
             "num_observations": row["test_observations"],
             "posterior_samples": row["posterior_samples"],
-            "likelihood": row["heldout_likelihood"],
+            "likelihood": row["test_likelihood"],
         },
     }
 
@@ -752,8 +752,8 @@ def _format_spec(spec: ExperimentSpec) -> str:
 
 def _format_row(row: dict[str, Any]) -> str:
     return (
-        f"delta={row['heldout_loglik_delta']:.3f}, "
-        f"mean_delta={row['heldout_mean_logp_delta']:.3f}, "
+        f"delta={row['test_loglik_delta']:.3f}, "
+        f"mean_delta={row['test_mean_logp_delta']:.3f}, "
         f"theta_l2={row['theta_l2_error']:.3f}"
     )
 
@@ -763,7 +763,7 @@ def _print_single_report(report: dict[str, Any], output: Path) -> None:
     data = report["data"]
     theta = report["theta"]
     vi = report["vi"]
-    heldout = report["heldout"]
+    test = report["test"]
 
     print("Synthetic validation")
     print(f"feature set: {config['feature_set']}")
@@ -792,17 +792,17 @@ def _print_single_report(report: dict[str, Any], output: Path) -> None:
     print(f"posterior L2 error: {theta['posterior_l2_error']:.3f}")
     print(f"ELBO: {vi['initial_elbo']:.3f} -> {vi['final_elbo']:.3f}")
     print()
-    print(f"posterior samples: {heldout['posterior_samples']}")
+    print(f"posterior samples: {test['posterior_samples']}")
     print(
-        "held-out loglik posterior predictive: "
-        f"{heldout['posterior_log_likelihood']:.3f}"
+        "test loglik posterior predictive: "
+        f"{test['posterior_log_likelihood']:.3f}"
     )
-    print(f"held-out loglik baseline:             {heldout['baseline_log_likelihood']:.3f}")
+    print(f"test loglik baseline:             {test['baseline_log_likelihood']:.3f}")
     print(
         "mean logp posterior predictive:       "
-        f"{heldout['posterior_mean_log_probability']:.3f}"
+        f"{test['posterior_mean_log_probability']:.3f}"
     )
-    print(f"mean logp baseline:                   {heldout['baseline_mean_log_probability']:.3f}")
+    print(f"mean logp baseline:                   {test['baseline_mean_log_probability']:.3f}")
     print()
     print(f"report written to: {output}")
 
@@ -819,8 +819,8 @@ def _print_summary(summary: list[dict[str, Any]]) -> None:
             f"{row['profile']:<14} "
             f"{row['runs']:>4} "
             f"{row['theta_l2_error_mean']:>9.3f} "
-            f"{row['heldout_loglik_delta_mean']:>13.3f} "
-            f"{row['heldout_mean_logp_delta_mean']:>15.3f}"
+            f"{row['test_loglik_delta_mean']:>13.3f} "
+            f"{row['test_mean_logp_delta_mean']:>15.3f}"
         )
 
 

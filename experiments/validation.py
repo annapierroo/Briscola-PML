@@ -1,4 +1,4 @@
-"""Validation experiments for synthetic opponent modelling."""
+"""Validation experiments for synthetic opponent modelling"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from opponents import FEATURE_NAMES, RandomOpponent, ThetaSoftmaxOpponent, zero_
 
 @dataclass(frozen=True, slots=True)
 class RecoveryResult:
-    """Theta recovery summary."""
+    """Theta recovery summary"""
 
     true_theta: tuple[float, ...]
     posterior_mean: tuple[float, ...]
@@ -31,7 +31,7 @@ class RecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class PredictiveResult:
-    """Held-out posterior predictive comparison."""
+    """Test posterior predictive comparison"""
 
     posterior_log_likelihood: float
     baseline_log_likelihood: float
@@ -52,7 +52,7 @@ def run_recovery_experiment(
     learning_rate: float = 0.03,
     num_elbo_samples: int = 1,
 ) -> RecoveryResult:
-    """Generate synthetic games and fit the VI posterior."""
+    """Generate synthetic games and fit the VI posterior"""
 
     feature_names = tuple(feature_names)
     true_theta = tuple(float(value) for value in true_theta)
@@ -102,7 +102,7 @@ def train_test_split(
     *,
     train_fraction: float = 0.75,
 ) -> tuple[tuple[OpponentMoveObservation, ...], tuple[OpponentMoveObservation, ...]]:
-    """Deterministic game-level split that preserves observation order."""
+    """Deterministic game-level split that preserves observation order"""
 
     if not 0.0 < train_fraction < 1.0:
         raise ValueError("train_fraction must be between 0 and 1")
@@ -127,7 +127,7 @@ def train_test_split(
     return train, test
 
 
-def heldout_predictive_evaluation(
+def test_predictive_evaluation(
     observations: Sequence[OpponentMoveObservation],
     posterior_mean: Sequence[float],
     *,
@@ -138,7 +138,7 @@ def heldout_predictive_evaluation(
     feature_names: Sequence[str] = FEATURE_NAMES,
     temperature: float = 1.0,
 ) -> PredictiveResult:
-    """Compare the VI posterior predictive against a zero-theta baseline."""
+    """Compare the VI posterior predictive against a zero-theta baseline"""
 
     if temperature <= 0.0:
         raise ValueError("temperature must be positive")

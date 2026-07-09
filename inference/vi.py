@@ -23,7 +23,7 @@ _DECK_INDEX = {card: index for index, card in enumerate(full_deck())}
 
 @dataclass(frozen=True, slots=True)
 class PreparedSequentialObservation:
-    """Precomputed tensors for one filtering step."""
+    """Precomputed tensors for one filtering step"""
 
     num_hands: int
     selected_indices: object
@@ -37,7 +37,7 @@ class PreparedSequentialObservation:
 
 @dataclass(frozen=True, slots=True)
 class PreparedSequentialGame:
-    """Precomputed filtering graph for one game."""
+    """Precomputed filtering graph for one game"""
 
     observations: tuple[PreparedSequentialObservation, ...]
 
@@ -59,7 +59,7 @@ def prepare_sequential_games(
     feature_names: Sequence[str] = FEATURE_NAMES,
     dtype: object | None = None,
 ) -> tuple[PreparedSequentialGame, ...]:
-    """Precompute exact hand-filter graphs for ordered game observations."""
+    """Precompute exact hand-filter graphs for ordered game observations"""
 
     torch_module = _require_torch()
     dtype = torch_module.float64 if dtype is None else dtype
@@ -79,7 +79,7 @@ def log_sequential_game_probability_torch(
     *,
     temperature: float = 1.0,
 ) -> object:
-    """Differentiable log-probability from the sequential hand filter."""
+    """Differentiable log-probability from the sequential hand filter"""
 
     torch_module = _require_torch()
     if temperature <= 0:
@@ -145,7 +145,7 @@ def log_sequential_likelihood_torch(
     *,
     temperature: float = 1.0,
 ) -> object:
-    """Differentiable sequential log-likelihood for several games."""
+    """Differentiable sequential log-likelihood for several games"""
 
     torch_module = _require_torch()
     if not prepared_games:
@@ -167,7 +167,7 @@ def sequential_log_likelihood(
     feature_names: Sequence[str] = FEATURE_NAMES,
     temperature: float = 1.0,
 ) -> float:
-    """Sequential held-out log-likelihood from the hand filter."""
+    """Sequential test log-likelihood from the hand filter"""
 
     torch_module = _require_torch()
     feature_names = tuple(feature_names)

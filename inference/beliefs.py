@@ -1,4 +1,4 @@
-"""Uniform local beliefs over possible opponent hands."""
+"""Uniform local beliefs over possible opponent hands"""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ def compatible_unknown_cards(
     *,
     opponent_player: int | None = None,
 ) -> tuple[Card, ...]:
-    """Cards that could still belong to the opponent."""
+    """Cards that could still belong to the opponent"""
 
-    # Baseline belief: remove known cards, but do not filter by draw order.
+    # Baseline belief: remove known cards, but not filter by draw order
     known_cards = set(observer_hand)
     known_cards.update(played.card for played in public_state.played_cards)
     known_cards.update(played.card for played in public_state.current_trick)
@@ -37,7 +37,7 @@ def known_opponent_cards(
     *,
     opponent_player: int | None,
 ) -> tuple[Card, ...]:
-    """Publicly known cards that must be in the opponent hand."""
+    """Publicly known cards that must be in the opponent hand"""
 
     if opponent_player is None:
         return ()
@@ -58,7 +58,7 @@ def compatible_hands(
     *,
     required_cards: Iterable[Card] = (),
 ) -> tuple[tuple[Card, ...], ...]:
-    """All hands of the requested size from the unknown-card pool."""
+    """All hands of the requested size from the unknown-card pool"""
 
     if hand_size < 0:
         raise ValueError("hand_size must be non-negative")
@@ -83,7 +83,7 @@ def compatible_hands_containing(
     *,
     required_cards: Iterable[Card] = (),
 ) -> tuple[tuple[Card, ...], ...]:
-    """All compatible hands that contain the observed card."""
+    """All compatible hands that contain the observed card"""
 
     if hand_size < 0:
         raise ValueError("hand_size must be non-negative")
@@ -112,7 +112,7 @@ def compatible_hands_containing(
 
 
 def hand_count(num_cards: int, hand_size: int, required_count: int = 0) -> int:
-    """Number of hands in a uniform local belief."""
+    """Number of hands in a uniform local belief"""
 
     if hand_size < 0:
         raise ValueError("hand_size must be non-negative")

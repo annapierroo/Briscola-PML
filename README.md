@@ -20,12 +20,12 @@ At the moment, the project includes:
   order;
 - a public game state and player-specific views;
 - synthetic opponents that choose cards with a softmax model based on `theta`;
-- interpretable card features, such as whether a card is a trump, a carico, or
-  wins the current trick;
+- interpretable card features, such as whether a card is a trump, how many
+  points it has, or whether it wins the current trick;
 - synthetic data collection from simulated games;
 - a sequential hand belief that is updated across the moves of the same game;
 - mean-field Gaussian variational inference for `theta`;
-- validation scripts for theta recovery and held-out posterior prediction;
+- validation scripts for theta recovery and test posterior prediction;
 - comparison scripts to test different feature sets, opponent profiles, and
   random seeds.
 
@@ -39,30 +39,19 @@ For each observed opponent move, we write:
 - `c_t` for the card the opponent actually plays.
 
 Given a candidate hand and the public state, the opponent chooses a card with a
-softmax policy:
+softmax policy over the cards in that hand. Here `phi` is the feature vector of
+a candidate card, and `theta` tells us how strongly the opponent cares about
+each feature. For example, a high positive weight on `points_normalized` means
+that the opponent tends to play high-value cards.
 
-```text
-p(c_t = x | H_t, I_t, theta)
-    = exp(theta^T phi(x, H_t, I_t))
-      / sum_{x' in H_t} exp(theta^T phi(x', H_t, I_t))
-```
-
-Here `phi` is the feature vector of a candidate card, and `theta` tells us how
-strongly the opponent cares about each feature. For example, a high positive
-weight on `is_carico` means that the opponent tends to play high-value cards.
-
-During inference we do not know the opponent's hand, so we marginalize it:
-
-```text
-p(c_t | I_t, theta) = sum_H b_t(H) p(c_t | H, I_t, theta)
-```
+During inference we do not know the opponent's hand, so we average over the
+hands that are compatible with the public information.
 
 The important part is `b_t(H)`: our belief over which hands the opponent could
 have. We currently use a sequential hand filter. This means that, within the
 same game, we do not treat every move as independent. After each observed move,
 we update the belief over possible opponent hands and use that updated belief
 for the next move.
-
 
 ## Variational Inference
 
@@ -81,7 +70,7 @@ means that we learn:
 
 The prior over `theta` is a zero-mean Gaussian.
 
-For held-out evaluation, we use the whole variational posterior rather than
+For test evaluation, we use the whole variational posterior rather than
 only its mean. We sample several theta vectors from `q(theta)`, evaluate the
 sequential likelihood for each one, and average those likelihoods in log space.
 This gives us a posterior predictive score for the test games.
@@ -115,7 +104,6 @@ greedy_take
 ```
 
 It extends `core` with interaction terms that depend on the current game state.
-We use it when we want to test whether extra context improves prediction.
 
 The synthetic opponent profiles are:
 
@@ -150,23 +138,17 @@ run_experiment.py       Single validation runs and comparison grids.
 test.py                 Core project tests.
 ```
 
-## Run Tests
-
-```bash
-python3 test.py
-```
-
 ## Run One Validation
 
 This command runs one synthetic experiment with the default feature set:
 
 ```bash
 python3 run_experiment.py single \
-  --num-games 100 \
+  --num-games 50 \
   --feature-set core \
   --profile greedy_points \
   --opponent-temperature 1.0 \
-  --vi-steps 300 \
+  --vi-steps 150 \
   --elbo-samples 2 \
   --posterior-samples 50 \
   --output artifacts/validation_report.json
@@ -178,7 +160,7 @@ The report tells us:
 - the posterior mean and standard deviation learned by VI;
 - the per-feature error and L2 recovery error;
 - the ELBO trajectory;
-- held-out posterior predictive log-likelihood against a zero-theta baseline.
+- test posterior predictive log-likelihood against a zero-theta baseline.
 
 Useful flags:
 
@@ -188,11 +170,11 @@ Useful flags:
 - `--prior-std` changes the width of the Gaussian prior over `theta`.
 - `--vi-steps` controls how long we optimize the variational posterior.
 - `--posterior-samples` controls how many theta samples from `q(theta)` we use
-  for held-out posterior prediction.
+  for test posterior prediction.
 
 Validation uses a fixed game-level 75/25 train/test split, which keeps all
 moves from one game in the same partition and avoids leakage between train and
-held-out data. The Adam learning rate is fixed at `0.03`.
+test data. The Adam learning rate is fixed at `0.03`.
 
 ## Run A Comparison
 
@@ -206,7 +188,7 @@ python3 run_experiment.py compare \
   --seeds 0 1 2 \
   --num-games 20 \
   --opponent-temperature 1.0 \
-  --vi-steps 300 \
+  --vi-steps 150 \
   --posterior-samples 20 \
   --jobs 4
 ```

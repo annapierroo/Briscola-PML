@@ -1,4 +1,4 @@
-"""Inference helpers for sequential hidden-hand filtering."""
+"""Inference helpers for sequential hidden-hand filtering"""
 
 from inference.beliefs import (
     compatible_hands,

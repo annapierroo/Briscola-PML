@@ -3,7 +3,7 @@ import unittest
 
 from experiments import (
     collect_observations,
-    heldout_predictive_evaluation,
+    test_predictive_evaluation,
     play_synthetic_game,
     train_test_split,
 )
@@ -205,7 +205,7 @@ class ProjectTest(unittest.TestCase):
         self.assertEqual(len(posterior.elbo_history), 2)
 
     @unittest.skipIf(torch is None, "PyTorch is not installed")
-    def test_validation_split_and_heldout_score(self) -> None:
+    def test_validation_split_and_test_score(self) -> None:
         observations = collect_observations(
             observed_model=ThetaSoftmaxOpponent(
                 GREEDY_POINTS_THETA,
@@ -217,7 +217,7 @@ class ProjectTest(unittest.TestCase):
             seed=3,
         )
         train, test = train_test_split(observations, train_fraction=0.75)
-        prediction = heldout_predictive_evaluation(
+        prediction = test_predictive_evaluation(
             test,
             posterior_mean=GREEDY_POINTS_THETA,
             posterior_std=tuple(0.1 for _ in GREEDY_POINTS_THETA),

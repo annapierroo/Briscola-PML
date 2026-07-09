@@ -1,5 +1,3 @@
-"""Public imports for the game engine"""
-
 from game.cards import Card, Rank, Suit, full_deck
 from game.simulator import (
     BriscolaGame,
