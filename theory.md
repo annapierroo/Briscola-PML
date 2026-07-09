@@ -162,7 +162,7 @@ The current `core` vectors are:
 
 For `interaction`, the feature order is:
 
-$$ (\texttt{trump\_progress}, \texttt{points\_progress}, \texttt{trump\_on\_table\_points}, \texttt{greedy\_take}) $$
+$$ (\texttt{trump\_progress}), (\texttt{points\_progress}), (\texttt{trump\_on\_table\_points}), (\texttt{greedy\_take}) $$
 
 The current `interaction` vectors are:
 
