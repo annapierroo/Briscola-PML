@@ -9,10 +9,7 @@ from collections.abc import Sequence
 from game import Card, full_deck
 from inference.beliefs import (
     compatible_hands,
-    compatible_hands_containing,
     compatible_unknown_cards,
-    hand_count,
-    known_opponent_cards,
 )
 from opponents.features import FEATURE_NAMES, card_features
 
@@ -22,15 +19,6 @@ except ModuleNotFoundError:
     torch = None
 
 _DECK_INDEX = {card: index for index, card in enumerate(full_deck())}
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedObservation:
-    """Feature tensor for one observed move"""
-
-    features: object
-    log_hand_factor: float
-    num_hands: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,26 +53,6 @@ class VariationalPosterior:
     training_likelihood: str = "sequential"
 
 
-def prepare_observations(
-    observations: Sequence[object],
-    *,
-    feature_names: Sequence[str] = FEATURE_NAMES,
-    dtype: object | None = None,
-) -> tuple[PreparedObservation, ...]:
-    """Precompute hand features once before VI"""
-
-    torch_module = _require_torch()
-    dtype = torch_module.float64 if dtype is None else dtype
-    return tuple(
-        _prepare_observation(
-            observation,
-            feature_names=feature_names,
-            dtype=dtype,
-        )
-        for observation in observations
-    )
-
-
 def prepare_sequential_games(
     observations: Sequence[object],
     *,
@@ -103,27 +71,6 @@ def prepare_sequential_games(
         )
         for group in _group_by_game(observations)
     )
-
-
-def log_marginal_probability_torch(
-    prepared: PreparedObservation,
-    theta: object,
-    *,
-    temperature: float = 1.0,
-) -> object:
-    """Differentiable marginal log-probability for one move"""
-
-    torch_module = _require_torch()
-    if temperature <= 0:
-        raise ValueError("temperature must be positive")
-
-    features = prepared.features
-    scores = torch_module.einsum("hkd,d->hk", features, theta) / temperature
-    log_card_probs = torch_module.log_softmax(scores, dim=1)
-    log_average = torch_module.logsumexp(log_card_probs[:, 0], dim=0) - math.log(
-        prepared.num_hands
-    )
-    return log_average + prepared.log_hand_factor
 
 
 def log_sequential_game_probability_torch(
@@ -242,27 +189,6 @@ def sequential_log_likelihood(
         )
 
 
-def log_likelihood_torch(
-    prepared_observations: Sequence[PreparedObservation],
-    theta: object,
-    *,
-    temperature: float = 1.0,
-) -> object:
-    """Differentiable log-likelihood for a batch of observations"""
-
-    torch_module = _require_torch()
-    if not prepared_observations:
-        return torch_module.zeros((), dtype=theta.dtype, device=theta.device)
-    return sum(
-        log_marginal_probability_torch(
-            prepared,
-            theta,
-            temperature=temperature,
-        )
-        for prepared in prepared_observations
-    )
-
-
 def diag_gaussian_kl(
     mean: object,
     log_std: object,
@@ -363,62 +289,6 @@ def fit_variational_posterior(
         elbo_history=tuple(elbo_history),
         feature_names=feature_names,
         training_likelihood="sequential",
-    )
-
-
-def _prepare_observation(
-    observation: object,
-    *,
-    feature_names: Sequence[str],
-    dtype: object,
-) -> PreparedObservation:
-    torch_module = _require_torch()
-    unknown_cards = compatible_unknown_cards(
-        observation.public_state,
-        observation.observer_hand,
-        opponent_player=observation.player,
-    )
-    required_cards = known_opponent_cards(
-        observation.public_state,
-        observation.observer_hand,
-        opponent_player=observation.player,
-    )
-    hand_size = observation.public_state.hand_sizes[observation.player]
-    hands = compatible_hands_containing(
-        unknown_cards,
-        hand_size,
-        observation.chosen_card,
-        required_cards=required_cards,
-    )
-    if not hands:
-        raise ValueError("observation has no compatible hidden hands")
-
-    # compatible_hands_containing returns hands with the observed card first.
-    feature_rows = [
-        [
-            card_features(
-                card,
-                hand,
-                observation.public_state,
-                observation.player,
-                feature_names=feature_names,
-            )
-            for card in hand
-        ]
-        for hand in hands
-    ]
-    tensor = torch_module.tensor(feature_rows, dtype=dtype)
-    total_count = hand_count(
-        len(unknown_cards),
-        hand_size,
-        required_count=len(required_cards),
-    )
-    log_hand_factor = math.log(len(hands)) - math.log(total_count)
-
-    return PreparedObservation(
-        features=tensor,
-        log_hand_factor=log_hand_factor,
-        num_hands=len(hands),
     )
 
 

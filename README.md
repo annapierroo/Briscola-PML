@@ -1,15 +1,15 @@
 # Briscola-PML
 
-We study Bayesian opponent modelling in two-player Briscola.
+The project focuses on Bayesian opponent modelling in two-player Briscola.
 
-The idea is simple: we observe how an opponent plays, we assume that their
+The idea is that we observe how an opponent plays, we assume that their
 style can be represented by a latent parameter vector `theta`, and we try to
 infer a posterior distribution over that vector. Once we have this posterior,
 we can use it to predict future opponent moves.
 
 We are not trying to build a complete Briscola-playing agent. Our focus is the
-inference problem itself: the opponent has a hidden hand, we only see public
-information and played cards, and we want to understand whether we can recover
+inference problem: the opponent has a hidden hand, we only see public
+information and played cards and we want to understand whether we can recover
 an interpretable playing style from partial observations.
 
 ## What We Have Built
@@ -23,14 +23,11 @@ At the moment, the project includes:
 - interpretable card features, such as whether a card is a trump, a carico, or
   wins the current trick;
 - synthetic data collection from simulated games;
-- an absolute marginal likelihood that reasons over the opponent's hidden hand;
 - a sequential hand belief that is updated across the moves of the same game;
 - mean-field Gaussian variational inference for `theta`;
 - validation scripts for theta recovery and held-out posterior prediction;
 - comparison scripts to test different feature sets, opponent profiles, and
-  random seeds;
-- unit tests for the simulator, opponents, inference code, validation code, and
-  scripts.
+  random seeds.
 
 
 ## Model

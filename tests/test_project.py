@@ -14,7 +14,6 @@ from inference import (
     fit_variational_posterior,
     known_opponent_cards,
     log_sequential_likelihood_torch,
-    marginal_card_probability,
     prepare_sequential_games,
     sequential_log_likelihood,
 )
@@ -130,7 +129,7 @@ class ProjectTest(unittest.TestCase):
             probabilities[Card(Rank.TWO, Suit.SWORDS)],
         )
 
-    def test_hidden_hand_belief_supports_marginal_prediction(self) -> None:
+    def test_hidden_hand_belief_enumerates_compatible_hands(self) -> None:
         result = play_synthetic_game(
             observed_model=ThetaSoftmaxOpponent(
                 GREEDY_POINTS_THETA,
@@ -160,19 +159,10 @@ class ProjectTest(unittest.TestCase):
             move.chosen_card,
             required_cards=required_cards,
         )
-        probability = marginal_card_probability(
-            move.chosen_card,
-            move.public_state,
-            move.observer_hand,
-            RANDOM_THETA,
-            observed_player=move.player,
-            feature_names=CORE_FEATURE_NAMES,
-        )
 
         self.assertIn(move.chosen_card, unknown_cards)
         self.assertTrue(hands)
-        self.assertGreater(probability, 0.0)
-        self.assertLessEqual(probability, 1.0)
+        self.assertTrue(all(move.chosen_card in hand for hand in hands))
 
     @unittest.skipIf(torch is None, "PyTorch is not installed")
     def test_sequential_likelihood_and_vi_run(self) -> None:
