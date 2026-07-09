@@ -25,77 +25,37 @@ from experiments import (  # noqa: E402
 from inference import fit_variational_posterior  # noqa: E402
 from opponents import (  # noqa: E402
     AGGRESSIVE_THETA,
-    COMPACT_AGGRESSIVE_THETA,
-    COMPACT_CONSERVATIVE_THETA,
-    COMPACT_FEATURE_NAMES,
-    COMPACT_GREEDY_POINTS_THETA,
     CONSERVATIVE_THETA,
     CORE_FEATURE_NAMES,
-    EXTENDED_AGGRESSIVE_THETA,
-    EXTENDED_CONSERVATIVE_THETA,
-    EXTENDED_FEATURE_NAMES,
-    EXTENDED_GREEDY_POINTS_THETA,
     GREEDY_POINTS_THETA,
-    RandomOpponent,
-    STYLE_AGGRESSIVE_THETA,
-    STYLE_CONSERVATIVE_THETA,
-    STYLE_FEATURE_NAMES,
-    STYLE_GREEDY_POINTS_THETA,
     INTERACTIVE_AGGRESSIVE_THETA,
     INTERACTIVE_CONSERVATIVE_THETA,
     INTERACTIVE_FEATURE_NAMES,
     INTERACTIVE_GREEDY_POINTS_THETA,
+    RandomOpponent,
     ThetaSoftmaxOpponent,
-    TRUMP_COUNT_AGGRESSIVE_THETA,
-    TRUMP_COUNT_CONSERVATIVE_THETA,
-    TRUMP_COUNT_FEATURE_NAMES,
-    TRUMP_COUNT_GREEDY_POINTS_THETA,
 )
 
 
 FEATURE_SETS = {
-    "compact": COMPACT_FEATURE_NAMES,
     "core": CORE_FEATURE_NAMES,
-    "extended": EXTENDED_FEATURE_NAMES,
-    "style": STYLE_FEATURE_NAMES,
     "interactive": INTERACTIVE_FEATURE_NAMES,
-    "trump_count": TRUMP_COUNT_FEATURE_NAMES,
 }
 
 THETA_PROFILES = {
-    "compact": {
-        "aggressive": COMPACT_AGGRESSIVE_THETA,
-        "conservative": COMPACT_CONSERVATIVE_THETA,
-        "greedy_points": COMPACT_GREEDY_POINTS_THETA,
-    },
     "core": {
         "aggressive": AGGRESSIVE_THETA,
         "conservative": CONSERVATIVE_THETA,
         "greedy_points": GREEDY_POINTS_THETA,
-    },
-    "extended": {
-        "aggressive": EXTENDED_AGGRESSIVE_THETA,
-        "conservative": EXTENDED_CONSERVATIVE_THETA,
-        "greedy_points": EXTENDED_GREEDY_POINTS_THETA,
-    },
-    "style": {
-        "aggressive": STYLE_AGGRESSIVE_THETA,
-        "conservative": STYLE_CONSERVATIVE_THETA,
-        "greedy_points": STYLE_GREEDY_POINTS_THETA,
     },
     "interactive": {
         "aggressive": INTERACTIVE_AGGRESSIVE_THETA,
         "conservative": INTERACTIVE_CONSERVATIVE_THETA,
         "greedy_points": INTERACTIVE_GREEDY_POINTS_THETA,
     },
-    "trump_count": {
-        "aggressive": TRUMP_COUNT_AGGRESSIVE_THETA,
-        "conservative": TRUMP_COUNT_CONSERVATIVE_THETA,
-        "greedy_points": TRUMP_COUNT_GREEDY_POINTS_THETA,
-    },
 }
 
-DEFAULT_FEATURE_SETS = ("style", "core", "compact", "interactive", "trump_count", "extended")
+DEFAULT_FEATURE_SETS = ("core", "interactive")
 DEFAULT_PROFILES = ("aggressive", "conservative", "greedy_points")
 DEFAULT_TRAIN_FRACTION = 0.75
 DEFAULT_LEARNING_RATE = 0.03
@@ -223,7 +183,7 @@ def _add_single_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--feature-set",
         choices=sorted(FEATURE_SETS),
-        default="style",
+        default="core",
         help="feature set used by the synthetic theta and inference model",
     )
     parser.add_argument(

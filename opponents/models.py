@@ -9,13 +9,9 @@ from typing import Protocol, Sequence
 
 from game import Card, PlayerView
 from opponents.features import (
-    COMPACT_FEATURE_NAMES,
     CORE_FEATURE_NAMES,
-    EXTENDED_FEATURE_NAMES,
     FEATURE_NAMES,
     INTERACTIVE_FEATURE_NAMES,
-    STYLE_FEATURE_NAMES,
-    TRUMP_COUNT_FEATURE_NAMES,
     card_features,
 )
 
@@ -62,131 +58,6 @@ GREEDY_POINTS_THETA = theta_from_weights(
     lowest_card_in_suit=-0.2,
 )
 
-STYLE_RANDOM_THETA = zero_theta(STYLE_FEATURE_NAMES)
-STYLE_AGGRESSIVE_THETA = theta_from_weights(
-    STYLE_FEATURE_NAMES,
-    is_carico=0.8,
-    is_low_trump=0.2,
-    is_high_trump=1.3,
-    is_low_points=-0.7,
-    wins_current_trick=1.8,
-)
-STYLE_CONSERVATIVE_THETA = theta_from_weights(
-    STYLE_FEATURE_NAMES,
-    is_carico=-0.8,
-    is_low_trump=-0.2,
-    is_high_trump=-1.4,
-    is_low_points=1.1,
-    wins_current_trick=0.4,
-)
-STYLE_GREEDY_POINTS_THETA = theta_from_weights(
-    STYLE_FEATURE_NAMES,
-    is_carico=1.8,
-    is_low_trump=-0.1,
-    is_high_trump=0.6,
-    is_low_points=-1.0,
-    wins_current_trick=0.9,
-)
-
-TRUMP_COUNT_RANDOM_THETA = zero_theta(TRUMP_COUNT_FEATURE_NAMES)
-TRUMP_COUNT_AGGRESSIVE_THETA = theta_from_weights(
-    TRUMP_COUNT_FEATURE_NAMES,
-    trumps_remaining_after=-0.3,
-    points_normalized=1.4,
-    wins_current_trick=2.2,
-    lowest_card_in_suit=-0.2,
-)
-TRUMP_COUNT_CONSERVATIVE_THETA = theta_from_weights(
-    TRUMP_COUNT_FEATURE_NAMES,
-    trumps_remaining_after=0.8,
-    points_normalized=-1.1,
-    wins_current_trick=0.7,
-    lowest_card_in_suit=1.2,
-)
-TRUMP_COUNT_GREEDY_POINTS_THETA = theta_from_weights(
-    TRUMP_COUNT_FEATURE_NAMES,
-    points_normalized=3.0,
-    wins_current_trick=0.4,
-    lowest_card_in_suit=-0.2,
-)
-
-COMPACT_RANDOM_THETA = zero_theta(COMPACT_FEATURE_NAMES)
-COMPACT_AGGRESSIVE_THETA = theta_from_weights(
-    COMPACT_FEATURE_NAMES,
-    is_trump=0.4,
-    points_normalized=1.4,
-    wins_current_trick=2.2,
-    lowest_card_in_suit=-0.2,
-    is_smooth=-0.3,
-)
-COMPACT_CONSERVATIVE_THETA = theta_from_weights(
-    COMPACT_FEATURE_NAMES,
-    is_trump=-1.8,
-    points_normalized=-1.1,
-    wins_current_trick=0.7,
-    lowest_card_in_suit=1.2,
-    is_smooth=0.8,
-)
-COMPACT_GREEDY_POINTS_THETA = theta_from_weights(
-    COMPACT_FEATURE_NAMES,
-    is_trump=0.1,
-    points_normalized=3.0,
-    wins_current_trick=0.4,
-    lowest_card_in_suit=-0.2,
-    is_smooth=-0.4,
-)
-
-EXTENDED_RANDOM_THETA = zero_theta(EXTENDED_FEATURE_NAMES)
-EXTENDED_AGGRESSIVE_THETA = theta_from_weights(
-    EXTENDED_FEATURE_NAMES,
-    is_trump=0.3,
-    points_normalized=1.2,
-    wins_current_trick=2.0,
-    lowest_card_in_suit=-0.2,
-    strength_normalized=0.7,
-    is_ace=0.4,
-    is_three=0.3,
-    is_load=0.4,
-    is_smooth=-0.3,
-    current_trick_points_normalized=0.9,
-    score_difference_normalized=-0.1,
-    stock_empty=0.2,
-    late_game=0.4,
-    higher_same_suit_unseen_normalized=-0.2,
-    higher_trumps_unseen_normalized=-0.3,
-)
-EXTENDED_CONSERVATIVE_THETA = theta_from_weights(
-    EXTENDED_FEATURE_NAMES,
-    is_trump=-1.4,
-    points_normalized=-0.9,
-    wins_current_trick=0.5,
-    lowest_card_in_suit=1.0,
-    strength_normalized=-0.4,
-    is_ace=-0.5,
-    is_three=-0.4,
-    is_load=-0.5,
-    is_smooth=0.8,
-    current_trick_points_normalized=0.2,
-    score_difference_normalized=0.1,
-    stock_empty=0.4,
-    late_game=0.5,
-    higher_same_suit_unseen_normalized=0.3,
-    higher_trumps_unseen_normalized=0.5,
-)
-EXTENDED_GREEDY_POINTS_THETA = theta_from_weights(
-    EXTENDED_FEATURE_NAMES,
-    is_trump=0.1,
-    points_normalized=2.8,
-    wins_current_trick=0.3,
-    lowest_card_in_suit=-0.2,
-    strength_normalized=0.2,
-    is_ace=0.4,
-    is_three=0.4,
-    is_load=0.4,
-    is_smooth=-0.4,
-    current_trick_points_normalized=0.2,
-)
-
 INTERACTIVE_RANDOM_THETA = zero_theta(INTERACTIVE_FEATURE_NAMES)
 INTERACTIVE_AGGRESSIVE_THETA = theta_from_weights(
     INTERACTIVE_FEATURE_NAMES,
@@ -194,8 +65,8 @@ INTERACTIVE_AGGRESSIVE_THETA = theta_from_weights(
     points_normalized=1.4,
     wins_current_trick=2.2,
     lowest_card_in_suit=-0.2,
-    trump_progress=-1.0, 
-    points_progress=-1.5, 
+    trump_progress=-1.0,
+    points_progress=-1.5,
     trump_on_table_points=1.0,
     greedy_take=1.5,
 )
@@ -205,9 +76,9 @@ INTERACTIVE_CONSERVATIVE_THETA = theta_from_weights(
     points_normalized=-1.1,
     wins_current_trick=0.7,
     lowest_card_in_suit=1.2,
-    trump_progress=2.0, 
-    points_progress=1.5, 
-    trump_on_table_points=-1.0, 
+    trump_progress=2.0,
+    points_progress=1.5,
+    trump_on_table_points=-1.0,
     greedy_take=0.2,
 )
 INTERACTIVE_GREEDY_POINTS_THETA = theta_from_weights(
@@ -218,9 +89,10 @@ INTERACTIVE_GREEDY_POINTS_THETA = theta_from_weights(
     lowest_card_in_suit=1.0,
     trump_progress=0.0,
     points_progress=0.0,
-    trump_on_table_points=3.0, 
-    greedy_take=3.5, 
+    trump_on_table_points=3.0,
+    greedy_take=3.5,
 )
+
 
 class OpponentModel(Protocol):
     """Interface shared by synthetic move generators"""

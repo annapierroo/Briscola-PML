@@ -21,9 +21,9 @@ from opponents import (
     AGGRESSIVE_THETA,
     CORE_FEATURE_NAMES,
     GREEDY_POINTS_THETA,
+    INTERACTIVE_AGGRESSIVE_THETA,
+    INTERACTIVE_FEATURE_NAMES,
     RANDOM_THETA,
-    STYLE_FEATURE_NAMES,
-    STYLE_GREEDY_POINTS_THETA,
     RandomOpponent,
     ThetaSoftmaxOpponent,
     card_features,
@@ -93,7 +93,7 @@ class ProjectTest(unittest.TestCase):
         self.assertTrue(all(move.chosen_card in move.legal_cards for move in result.observations))
         self.assertEqual(len(observations), 40)
 
-    def test_style_features_feed_the_softmax_opponent(self) -> None:
+    def test_interactive_features_feed_the_softmax_opponent(self) -> None:
         game = BriscolaGame.from_deck(
             deck_with_prefix(
                 [
@@ -115,14 +115,14 @@ class ProjectTest(unittest.TestCase):
             view.hand,
             view.public_state,
             player=0,
-            feature_names=STYLE_FEATURE_NAMES,
+            feature_names=INTERACTIVE_FEATURE_NAMES,
         )
         probabilities = ThetaSoftmaxOpponent(
-            STYLE_GREEDY_POINTS_THETA,
-            feature_names=STYLE_FEATURE_NAMES,
+            INTERACTIVE_AGGRESSIVE_THETA,
+            feature_names=INTERACTIVE_FEATURE_NAMES,
         ).probabilities(view)
 
-        self.assertEqual(len(features), len(STYLE_GREEDY_POINTS_THETA))
+        self.assertEqual(len(features), len(INTERACTIVE_AGGRESSIVE_THETA))
         self.assertAlmostEqual(sum(probabilities.values()), 1.0)
         self.assertGreater(
             probabilities[Card(Rank.ACE, Suit.CUPS)],

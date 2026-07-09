@@ -88,24 +88,34 @@ This gives us a posterior predictive score for the test games.
 
 ## Feature Sets
 
-The default feature contains:
+The main feature set is `core`:
 
 ```text
-is_carico
-is_low_trump
-is_high_trump
-is_low_points
+is_trump
+points_normalized
 wins_current_trick
+lowest_card_in_suit
 ```
 
-We use this set because it is easier to interpret than one broad point-value
-feature. It separates several Briscola behaviours:
+We keep it as the default because it is compact and easy to interpret. It
+captures whether a card is a trump, how many points it has, whether it wins the
+current trick, and whether it is the lowest card of its suit in hand.
 
-- playing high-value cards;
-- using low trumps;
-- using high trumps;
-- discarding zero-point cards;
-- trying to win the current trick.
+The other available set is `interactive`:
+
+```text
+is_trump
+points_normalized
+wins_current_trick
+lowest_card_in_suit
+trump_progress
+points_progress
+trump_on_table_points
+greedy_take
+```
+
+It extends `core` with interaction terms that depend on the current game state.
+We use it when we want to test whether extra context improves prediction.
 
 The synthetic opponent profiles are:
 
@@ -134,14 +144,13 @@ experiments/
 
 inference/
   beliefs.py            Compatible hidden-hand enumeration.
-  likelihood.py         Local and marginal card probabilities.
   vi.py                 Sequential likelihood and variational inference.
 
 scripts/
   run_experiment.py     Single validation runs and comparison grids.
 
 tests/
-  test_*.py             Unit tests.
+  test_project.py       Core project tests.
 ```
 
 ## Run Tests
@@ -157,7 +166,7 @@ This command runs one synthetic experiment with the default feature set:
 ```bash
 python3 scripts/run_experiment.py single \
   --num-games 100 \
-  --feature-set style \
+  --feature-set core \
   --profile greedy_points \
   --opponent-temperature 1.0 \
   --vi-steps 300 \
@@ -195,7 +204,7 @@ seeds:
 
 ```bash
 python3 scripts/run_experiment.py compare \
-  --feature-sets style core compact interactive trump_count extended \
+  --feature-sets core interactive \
   --profiles aggressive conservative greedy_points \
   --seeds 0 1 2 \
   --num-games 20 \
